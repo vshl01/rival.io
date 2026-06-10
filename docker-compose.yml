@@ -1,0 +1,62 @@
+# One-command local stack: Postgres + API + Web.
+#   docker compose up --build
+#
+# The API waits for Postgres to be healthy, runs migrations, then serves on :4000.
+# The web app is built against the API and served on :3000.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rival
+      POSTGRES_PASSWORD: rival
+      POSTGRES_DB: rival
+    ports:
+      - '5432:5432'
+    volumes:
+      - rival_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U rival -d rival']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://rival:rival@db:5432/rival?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret-in-prod-please-0001}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-in-prod-please-0002}
+      CORS_ORIGINS: http://localhost:3000
+      COOKIE_SECURE: 'false'
+    ports:
+      - '4000:4000'
+    volumes:
+      - rival_uploads:/app/uploads
+
+  web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:4000
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:4000
+    ports:
+      - '3000:3000'
+
+volumes:
+  rival_pgdata:
+  rival_uploads:
