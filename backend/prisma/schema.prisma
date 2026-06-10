@@ -1,0 +1,122 @@
+// Rival — data model
+// Run `npm run prisma:migrate` to apply changes locally.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tasks      Task[]
+  activities Activity[]
+  comments   Comment[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  priority    Priority   @default(MEDIUM)
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  attachments Attachment[]
+  activities  Activity[]
+  comments    Comment[]
+
+  // Composite indexes tuned for the list query (filter by owner + status, sort by columns).
+  @@index([ownerId, status])
+  @@index([ownerId, dueDate])
+  @@index([ownerId, priority])
+  @@index([ownerId, createdAt])
+  @@map("tasks")
+}
+
+model Attachment {
+  id           String   @id @default(cuid())
+  filename     String // stored filename on disk / object key
+  originalName String
+  mimeType     String
+  size         Int
+  url          String
+  createdAt    DateTime @default(now())
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("attachments")
+}
+
+// Discussion thread on a task — the owner and any admin can converse here.
+model Comment {
+  id        String   @id @default(cuid())
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@map("comments")
+}
+
+// Append-only audit trail per task.
+model Activity {
+  id        String   @id @default(cuid())
+  action    String // e.g. "task.created", "task.status_changed"
+  metadata  Json? // before/after diff, field names, etc.
+  createdAt DateTime @default(now())
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  actorId String?
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@map("activities")
+}
