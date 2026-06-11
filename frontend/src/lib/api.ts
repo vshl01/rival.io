@@ -9,8 +9,10 @@ import type {
   User,
 } from "./types";
 
-export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+// Trailing slashes are stripped so a value like "https://host/" can't produce "//api".
+export const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000"
+).replace(/\/+$/, "");
 const BASE = `${API_URL}/api`;
 
 /** A typed error carrying the backend's machine code and any field errors. */

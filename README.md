@@ -157,10 +157,12 @@ Tests run against a **dedicated `rival_test` database** so they never touch your
 
 ## 🌐 Deployment
 
+**Live API:** https://rival-io.onrender.com — health check: https://rival-io.onrender.com/api/health
+
 The app is deploy-ready for a typical split hosting setup:
 
-- **Frontend → Vercel.** Import `frontend/`, set `NEXT_PUBLIC_API_URL` to your API’s public URL.
-- **Backend → Render / Railway / Fly.** Deploy `backend/` (its `Dockerfile` runs `prisma migrate deploy` on boot), attach a managed Postgres, and set the env vars from `backend/.env.example` (generate real `JWT_*` secrets, set `COOKIE_SECURE=true`, and `CORS_ORIGINS` to your frontend origin).
+- **Backend → Render** (live). Deployed from `backend/` on Render with a managed Postgres; the image boots via `prisma migrate deploy → seed → start`. Env: real `JWT_*` secrets, `COOKIE_SECURE=true`, `CORS_ORIGINS=*` (or your frontend origin).
+- **Frontend → Vercel.** Import `frontend/`, set `NEXT_PUBLIC_API_URL=https://rival-io.onrender.com`.
 
 > Cross-site cookies: in production set `COOKIE_SECURE=true` (the refresh cookie then uses `SameSite=None; Secure`) and serve both apps over HTTPS.
 
