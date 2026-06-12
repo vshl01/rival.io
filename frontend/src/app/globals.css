@@ -1,0 +1,154 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────
+   Theme tokens — HSL channels consumed by tailwind.config.ts
+   ───────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    /* Light — warm paper */
+    --canvas: 40 33% 97%;
+    --surface: 0 0% 100%;
+    --elevated: 40 30% 98%;
+    --line: 40 13% 87%;
+    --ink: 30 12% 11%;
+    --ink-soft: 30 6% 38%;
+    --ink-faint: 30 5% 56%;
+    --accent: 84 74% 44%;
+    --accent-ink: 80 60% 7%;
+    --low: 211 38% 48%;
+    --medium: 38 88% 47%;
+    --high: 22 88% 50%;
+    --urgent: 5 78% 53%;
+    --danger: 0 72% 50%;
+  }
+
+  .dark {
+    /* Dark — warm near-black */
+    --canvas: 30 9% 6%;
+    --surface: 30 8% 9%;
+    --elevated: 32 8% 13%;
+    --line: 36 7% 19%;
+    --ink: 42 24% 96%;
+    --ink-soft: 40 8% 68%;
+    --ink-faint: 40 6% 46%;
+    --accent: 74 90% 62%;
+    --accent-ink: 80 50% 8%;
+    --low: 211 42% 66%;
+    --medium: 38 92% 62%;
+    --high: 22 92% 62%;
+    --urgent: 5 86% 66%;
+    --danger: 2 78% 62%;
+  }
+
+  * {
+    border-color: hsl(var(--line));
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: hsl(var(--canvas));
+    color: hsl(var(--ink));
+    font-feature-settings: 'ss01', 'cv01';
+  }
+
+  /* Themed selection + focus ring */
+  ::selection {
+    background: hsl(var(--accent) / 0.85);
+    color: hsl(var(--accent-ink));
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--accent));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--ink-faint) / 0.35);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--ink-faint) / 0.6);
+    background-clip: content-box;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Reusable utilities
+   ───────────────────────────────────────────────────────────── */
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-page px-5 sm:px-8;
+  }
+
+  /* Subtle dotted grid texture for section backgrounds */
+  .bg-grid {
+    background-image: radial-gradient(hsl(var(--ink) / 0.06) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  .text-eyebrow {
+    @apply font-mono text-[11px] uppercase tracking-[0.22em] text-ink-faint;
+  }
+
+  /* Glassy card used across the app */
+  .card {
+    @apply rounded-2xl border border-line bg-surface shadow-soft;
+  }
+
+  .mask-fade-x {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
+  }
+
+  .marquee-track {
+    @apply flex w-max animate-marquee;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+  /* Animated accent gradient text */
+  .text-gradient {
+    background: linear-gradient(
+      100deg,
+      hsl(var(--ink)),
+      hsl(var(--ink)) 40%,
+      hsl(var(--accent)) 70%,
+      hsl(var(--ink))
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+/* Respect reduced-motion preferences globally */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
