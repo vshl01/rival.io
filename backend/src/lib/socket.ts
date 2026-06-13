@@ -21,7 +21,7 @@ export type TaskEvent =
 
 export function initSocket(httpServer: HttpServer): SocketServer {
   io = new SocketServer(httpServer, {
-    cors: { origin: env.corsOrigins, credentials: true },
+    cors: { origin: env.corsAllowAll ? true : env.corsOrigins, credentials: true },
   });
 
   // Authenticate the handshake using the same access token as the REST API.

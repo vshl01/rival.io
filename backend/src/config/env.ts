@@ -51,6 +51,9 @@ export const env = {
   isProd: raw.NODE_ENV === 'production',
   isTest: raw.NODE_ENV === 'test',
   corsOrigins: raw.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
+  // CORS_ORIGINS="*" reflects any request origin (works with credentials,
+  // unlike a literal "*" header). Use a fixed allow-list in real production.
+  corsAllowAll: raw.CORS_ORIGINS.split(',').map((o) => o.trim()).includes('*'),
 };
 
 export type Env = typeof env;

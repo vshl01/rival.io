@@ -21,7 +21,9 @@ export function createApp(): Express {
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(
     cors({
-      origin: env.corsOrigins,
+      // `origin: true` reflects the request origin (allow-all, but still
+      // compatible with credentialed requests). Otherwise use the allow-list.
+      origin: env.corsAllowAll ? true : env.corsOrigins,
       credentials: true,
     }),
   );
