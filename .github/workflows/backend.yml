@@ -1,0 +1,54 @@
+name: Backend CI
+
+# Runs ONLY when backend code (or this workflow) changes.
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/backend.yml'
+
+jobs:
+  backend:
+    name: Typecheck · test · build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
+
+    # Matches backend/.env.test, which the suite loads when NODE_ENV=test.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: rival
+          POSTGRES_PASSWORD: rival
+          POSTGRES_DB: rival_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rival -d rival_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run typecheck
+      # `pretest` applies the schema to the test DB (rival_test) via .env.test.
+      - run: npm test
+      - run: npm run build
