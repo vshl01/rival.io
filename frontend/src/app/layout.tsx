@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter, Instrument_Serif, JetBrains_Mono } from 'next/font/google';
+import { headers } from 'next/headers';
 import type { ReactNode } from 'react';
 import { Providers } from './providers';
 import './globals.css';
@@ -34,6 +35,11 @@ export const metadata: Metadata = {
   icons: { icon: '/favicon.svg' },
 };
 
+// The nonce in our CSP (src/middleware.ts) is minted per request, so pages must
+// be rendered per request too — a prerendered page would ship stale/no nonce and
+// every script would be blocked.
+export const dynamic = 'force-dynamic';
+
 export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#faf7f2' },
@@ -42,10 +48,12 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  const nonce = headers().get('x-nonce') ?? undefined;
+
   return (
     <html lang="en" suppressHydrationWarning className={`${sans.variable} ${display.variable} ${mono.variable}`}>
       <body className="min-h-screen bg-canvas font-sans text-ink antialiased">
-        <Providers>{children}</Providers>
+        <Providers nonce={nonce}>{children}</Providers>
       </body>
     </html>
   );

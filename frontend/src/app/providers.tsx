@@ -7,9 +7,9 @@ import { QueryProvider } from '@/providers/query-provider';
 import { SocketProvider } from '@/providers/socket-provider';
 import { ThemeProvider } from '@/providers/theme-provider';
 
-export function Providers({ children }: { children: ReactNode }) {
+export function Providers({ children, nonce }: { children: ReactNode; nonce?: string }) {
   return (
-    <ThemeProvider>
+    <ThemeProvider nonce={nonce}>
       <QueryProvider>
         <SocketProvider>
           <AuthBootstrap />
