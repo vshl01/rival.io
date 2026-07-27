@@ -106,9 +106,15 @@ See [`.env.example`](./.env.example). Key vars:
 | `DATABASE_URL` | PostgreSQL connection string |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | token signing (use `openssl rand -base64 48`) |
 | `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | token lifetimes (default `15m` / `7d`) |
-| `CORS_ORIGINS` | comma-separated allowed frontend origins |
+| `CORS_ORIGINS` | comma-separated allowed frontend origins — the only origins a browser may call this API from. Refuses to boot on `*` when `NODE_ENV=production` |
 | `COOKIE_SECURE` | `true` in production (HTTPS) for `SameSite=None; Secure` refresh cookie |
 | `MAX_UPLOAD_BYTES` | attachment size limit (default 5 MB) |
+
+`CORS_ORIGINS` and `COOKIE_SECURE` are set per environment in the committed
+`.env.development` / `.env.production`, chosen by `NODE_ENV` (see `src/config/env.ts`).
+Files load highest-precedence first: `.env.$NODE_ENV.local` → `.env.$NODE_ENV` → `.env`,
+and real platform variables beat all of them. Keep secrets in `.env` only.
+`NODE_ENV=test` loads **only** `.env.test`, so the suite can never reach a real database.
 
 ---
 

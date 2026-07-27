@@ -161,8 +161,34 @@ Tests run against a **dedicated `rival_test` database** so they never touch your
 
 The app is deploy-ready for a typical split hosting setup:
 
-- **Backend → Render** (live). Deployed from `backend/` on Render with a managed Postgres; the image boots via `prisma migrate deploy → seed → start`. Env: real `JWT_*` secrets, `COOKIE_SECURE=true`, `CORS_ORIGINS=*` (or your frontend origin).
-- **Frontend → Vercel.** Import `frontend/`, set `NEXT_PUBLIC_API_URL=https://rival-io.onrender.com`.
+**Live app:** https://rival-io.vercel.app · **Live API:** https://rival-io.onrender.com
+
+- **Backend → Render** (live). Deployed from `backend/` on Render with a managed Postgres; boots via `npm run start:prod` (`prisma migrate deploy → start`). Seeding is **not** part of boot — on a fresh database run `NODE_ENV=production npm run db:seed` once. Set only the *secrets* in the Render dashboard (`DATABASE_URL`, `JWT_*`); CORS and cookie flags come from the committed `backend/.env.production`.
+- **Frontend → Vercel** (live). Import `frontend/`; no env vars needed — `frontend/.env.production` already points at the Render API.
+
+### Environment layout
+
+Per-environment settings are committed and selected by `NODE_ENV`; secrets stay in the gitignored `.env`.
+
+| file | committed? | holds |
+| --- | --- | --- |
+| `backend/.env.development` | yes | `CORS_ORIGINS=http://localhost:3000`, `COOKIE_SECURE=false` |
+| `backend/.env.production` | yes | `CORS_ORIGINS=https://rival-io.vercel.app`, `COOKIE_SECURE=true` |
+| `backend/.env` | **no** | `DATABASE_URL`, `JWT_*` secrets |
+| `backend/.env.development.local` | **no** | personal overrides (wins over all of the above) |
+| `frontend/.env.development` | yes | `NEXT_PUBLIC_API_URL=http://localhost:4000` |
+| `frontend/.env.production` | yes | `NEXT_PUBLIC_API_URL=https://rival-io.onrender.com` |
+
+Which file loads is decided by the npm script, so you never pass flags by hand:
+
+```bash
+npm run dev         # backend: NODE_ENV=development -> only localhost:3000 may call the API
+npm run start:prod  # backend: NODE_ENV=production  -> only rival-io.vercel.app may call the API
+```
+
+Two guardrails: `CORS_ORIGINS="*"` is **rejected at boot** when `NODE_ENV=production`, and the
+frontend's nonce-based CSP (`frontend/src/middleware.ts`) restricts `connect-src` to its own
+origin plus `NEXT_PUBLIC_API_URL` — so the app cannot talk to any other host.
 
 > Cross-site cookies: in production set `COOKIE_SECURE=true` (the refresh cookie then uses `SameSite=None; Secure`) and serve both apps over HTTPS.
 
