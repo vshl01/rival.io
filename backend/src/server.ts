@@ -14,7 +14,7 @@ async function main() {
 
   httpServer.listen(env.PORT, () => {
     // eslint-disable-next-line no-console
-    console.log(`🚀 Rival API ready on http://localhost:${env.PORT}  (${env.NODE_ENV})`);
+    console.log(`🚀 Rival API ready on http://localhost:${env.PORT}/api/health  (${env.NODE_ENV})`);
   });
 
   const shutdown = async (signal: string) => {
