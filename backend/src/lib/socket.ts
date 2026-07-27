@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from 'node:http';
 import { Server as SocketServer, type Socket } from 'socket.io';
-import { env } from '@/config/env';
+import { corsOptions } from '@/config/cors';
 import { verifyAccessToken } from '@/lib/jwt';
 
 /**
@@ -20,9 +20,7 @@ export type TaskEvent =
   | 'comment:deleted';
 
 export function initSocket(httpServer: HttpServer): SocketServer {
-  io = new SocketServer(httpServer, {
-    cors: { origin: env.corsAllowAll ? true : env.corsOrigins, credentials: true },
-  });
+  io = new SocketServer(httpServer, { cors: corsOptions });
 
   // Authenticate the handshake using the same access token as the REST API.
   io.use((socket: Socket, nextFn) => {

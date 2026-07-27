@@ -39,7 +39,7 @@ RUN groupadd -r app && useradd -r -g app -m app \
 USER app
 
 EXPOSE 4000
-# On boot: apply migrations, then seed (idempotent — upserts users, skips tasks
-# if already present), then start. Seeding is best-effort so it can never block
-# startup. Both `migrate deploy` and the seed are safe to re-run on every deploy.
-CMD ["sh", "-c", "npx prisma migrate deploy && (npm run db:seed || echo 'seed skipped') && node dist/server.js"]
+# On boot: apply migrations, then start. `migrate deploy` is safe to re-run on
+# every deploy. Seeding is deliberately NOT part of boot — run it by hand on a
+# fresh database: `npm run db:seed`.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
