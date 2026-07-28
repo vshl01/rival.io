@@ -1,287 +1,228 @@
 'use client';
 
-import { Plus, Ticket as TicketIcon, Trash2 } from 'lucide-react';
-import { useState } from 'react';
-import { PriorityBadge, StatusBadge } from '@/components/ui/badge';
+import { Eye, EyeOff, Plus, Ticket as TicketIcon } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { TaskDetailDrawer } from '@/components/tasks/task-detail-drawer';
+import { CreateTicketModal } from '@/components/tickets/create-ticket-modal';
+import { TicketCard } from '@/components/tickets/ticket-card';
 import { Button } from '@/components/ui/button';
-import { Input, Label, Select } from '@/components/ui/field';
 import { EmptyState, Skeleton } from '@/components/ui/feedback';
-import { Modal } from '@/components/ui/modal';
-import { useOrgMembers } from '@/hooks/use-orgs';
-import { useCreateTicket, useDeleteTicket, useSprintTickets, useUpdateTicket } from '@/hooks/use-tickets';
-import { formatDue } from '@/lib/format';
+import {
+  isPendingTicket,
+  useDeleteTicket,
+  useSprintTickets,
+  useUpdateTicket,
+} from '@/hooks/use-tickets';
+import { BOARD_COLUMNS, STATUS_META } from '@/lib/task-meta';
 import type { Task, TaskStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
-
-const STATUSES: TaskStatus[] = ['TODO', 'IN_PROGRESS', 'DONE'];
+import { useWatchSprint } from '@/providers/socket-provider';
 
 interface TicketBoardProps {
   orgSlug: string;
   cycle: string;
   sprint: number;
+  /**
+   * The sprint's real id, used to join its realtime room. The URL carries the
+   * per-cycle number, which is not unique across the platform and so cannot key
+   * a socket room.
+   */
+  sprintId: string;
   /** Delete is assigner-only server-side; the control is hidden for workers. */
   canDelete: boolean;
 }
 
 /**
- * The tickets in one sprint, grouped by status.
+ * The tickets in one sprint, as dense status columns.
  *
- * Creating and updating is open to every member — only deletion is restricted,
- * which is the single asymmetry in the permission model.
+ * There is a single create entry point — every ticket enters in Scoping and is
+ * dragged onward, so columns are destinations rather than inboxes. Status changes
+ * go through an optimistic mutation: the card moves on drop and snaps back if the
+ * server refuses.
+ *
+ * The board is shared, so it also watches its sprint's realtime room: a card
+ * dragged by a colleague moves here too, without anyone reloading.
  */
-export function TicketBoard({ orgSlug, cycle, sprint, canDelete }: TicketBoardProps) {
-  const [createOpen, setCreateOpen] = useState(false);
+export function TicketBoard({ orgSlug, cycle, sprint, sprintId, canDelete }: TicketBoardProps) {
+  const [createIn, setCreateIn] = useState<TaskStatus | null>(null);
+  const [showRemoved, setShowRemoved] = useState(false);
+  const [dragOver, setDragOver] = useState<TaskStatus | null>(null);
+
+  // Every member looking at this board gets the same events.
+  useWatchSprint(sprintId);
+
   const { data: tickets, isLoading } = useSprintTickets(orgSlug, cycle, sprint);
+  const update = useUpdateTicket(orgSlug, cycle, sprint);
+  const remove = useDeleteTicket(orgSlug, cycle, sprint);
+
+  /** Group once per data change rather than filtering per column on every render. */
+  const byStatus = useMemo(() => {
+    const groups = new Map<TaskStatus, Task[]>();
+    for (const ticket of tickets ?? []) {
+      const list = groups.get(ticket.status);
+      if (list) list.push(ticket);
+      else groups.set(ticket.status, [ticket]);
+    }
+    return groups;
+  }, [tickets]);
+
+  const removedCount = byStatus.get('REMOVED')?.length ?? 0;
+  const columns = showRemoved ? [...BOARD_COLUMNS, 'REMOVED' as TaskStatus] : BOARD_COLUMNS;
+
+  const modal = (
+    <CreateTicketModal
+      status={createIn}
+      onClose={() => setCreateIn(null)}
+      orgSlug={orgSlug}
+      cycle={cycle}
+      sprint={sprint}
+    />
+  );
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 md:grid-cols-3">
-        {STATUSES.map((s) => (
-          <Skeleton key={s} className="h-40 rounded-2xl" />
+      <div className="flex h-[calc(100vh-13.5rem)] gap-2 overflow-hidden">
+        {BOARD_COLUMNS.map((s) => (
+          <Skeleton key={s} className="h-full min-w-[248px] flex-1 rounded-xl" />
         ))}
       </div>
     );
   }
 
-  return (
-    <section className="space-y-4">
-      <header className="flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-sm font-medium text-ink">
-          <TicketIcon className="h-4 w-4 text-ink-faint" />
-          Tickets
-          {tickets?.length ? <span className="text-xs text-ink-faint">{tickets.length}</span> : null}
-        </h2>
-        <Button size="sm" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          New ticket
-        </Button>
-      </header>
-
-      {!tickets?.length ? (
+  if (!tickets?.length) {
+    return (
+      <>
         <EmptyState
-          icon={<TicketIcon className="h-6 w-6" />}
+          icon={<TicketIcon className="h-5 w-5" />}
           title="No tickets yet"
-          description="Anyone in the organisation can add the first one — assigners and workers alike."
+          description="Anyone in the organisation can add the first one. It starts in Scoping."
           action={
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
+            <Button size="sm" onClick={() => setCreateIn('SCOPING')}>
+              <Plus className="h-3.5 w-3.5" />
               New ticket
             </Button>
           }
-          className="rounded-2xl border border-line bg-surface py-12"
+          className="rounded-xl border border-line bg-surface py-10"
         />
-      ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          {STATUSES.map((status) => (
-            <StatusColumn
-              key={status}
-              status={status}
-              tickets={tickets.filter((t) => t.status === status)}
-              orgSlug={orgSlug}
-              cycle={cycle}
-              sprint={sprint}
-              canDelete={canDelete}
-            />
-          ))}
-        </div>
-      )}
-
-      <CreateTicketModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        orgSlug={orgSlug}
-        cycle={cycle}
-        sprint={sprint}
-      />
-    </section>
-  );
-}
-
-interface StatusColumnProps extends TicketBoardProps {
-  status: TaskStatus;
-  tickets: Task[];
-}
-
-function StatusColumn({ status, tickets, orgSlug, cycle, sprint, canDelete }: StatusColumnProps) {
-  return (
-    <div className="rounded-2xl border border-line bg-surface p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <StatusBadge status={status} />
-        <span className="text-xs text-ink-faint">{tickets.length}</span>
-      </div>
-
-      {tickets.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-line px-3 py-6 text-center text-xs text-ink-faint">
-          Nothing here
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {tickets.map((ticket) => (
-            <TicketRow
-              key={ticket.id}
-              ticket={ticket}
-              orgSlug={orgSlug}
-              cycle={cycle}
-              sprint={sprint}
-              canDelete={canDelete}
-            />
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function TicketRow({
-  ticket,
-  orgSlug,
-  cycle,
-  sprint,
-  canDelete,
-}: { ticket: Task } & Omit<TicketBoardProps, never>) {
-  const update = useUpdateTicket(orgSlug, cycle, sprint);
-  const remove = useDeleteTicket(orgSlug, cycle, sprint);
-  const due = formatDue(ticket.dueDate);
+        {modal}
+      </>
+    );
+  }
 
   return (
-    <li className="rounded-xl border border-line bg-canvas px-3 py-2.5">
-      <div className="flex items-start justify-between gap-2">
-        <span className="font-mono text-[11px] text-ink-faint">{ticket.key}</span>
-        {canDelete && (
+    <>
+      {/* Board toolbar — count, removed toggle, and the one create button. */}
+      <div className="flex items-center gap-3 pb-2">
+        <span className="text-xs text-ink-faint">
+          {tickets.length} {tickets.length === 1 ? 'ticket' : 'tickets'}
+        </span>
+
+        {removedCount > 0 && (
           <button
-            onClick={() => remove.mutate(ticket.id)}
-            disabled={remove.isPending}
-            aria-label={`Delete ${ticket.key}`}
-            className="rounded p-0.5 text-ink-faint transition-colors hover:text-danger disabled:opacity-40"
+            onClick={() => setShowRemoved((v) => !v)}
+            className="inline-flex items-center gap-1 text-xs text-ink-faint transition-colors hover:text-ink"
           >
-            <Trash2 className="h-3.5 w-3.5" />
+            {showRemoved ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+            {removedCount} removed
           </button>
         )}
-      </div>
 
-      <p className="mt-1 text-sm text-ink">{ticket.title}</p>
-
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <PriorityBadge priority={ticket.priority} />
-        {due && (
-          <span className={cn('text-[11px]', due.overdue ? 'text-danger' : 'text-ink-faint')}>
-            {due.label}
-          </span>
-        )}
-      </div>
-
-      {ticket.assignee && (
-        <p className="mt-2 truncate text-[11px] text-ink-faint">→ {ticket.assignee.name}</p>
-      )}
-
-      {/* Status is the one field worth changing inline — it is the whole board. */}
-      <Select
-        aria-label={`Status of ${ticket.key}`}
-        value={ticket.status}
-        disabled={update.isPending}
-        onChange={(e) => update.mutate({ id: ticket.id, status: e.target.value as TaskStatus })}
-        className="mt-2 h-8 py-0 text-xs"
-      >
-        {STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {s.replace('_', ' ').toLowerCase()}
-          </option>
-        ))}
-      </Select>
-    </li>
-  );
-}
-
-function CreateTicketModal({
-  open,
-  onClose,
-  orgSlug,
-  cycle,
-  sprint,
-}: {
-  open: boolean;
-  onClose: () => void;
-  orgSlug: string;
-  cycle: string;
-  sprint: number;
-}) {
-  const [title, setTitle] = useState('');
-  const [priority, setPriority] = useState<Task['priority']>('MEDIUM');
-  const [assigneeId, setAssigneeId] = useState('');
-  const { data: members } = useOrgMembers(open ? orgSlug : null);
-  const create = useCreateTicket(orgSlug, cycle, sprint);
-
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!title.trim()) return;
-    await create.mutateAsync({
-      title: title.trim(),
-      priority,
-      assigneeId: assigneeId || null,
-    });
-    setTitle('');
-    setAssigneeId('');
-    onClose();
-  };
-
-  return (
-    <Modal open={open} onClose={onClose} title="New ticket" description="It gets its key automatically.">
-      <form onSubmit={submit} className="space-y-5 px-6 py-5">
-        <div>
-          <Label htmlFor="ticket-title">Title</Label>
-          <Input
-            id="ticket-title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Fix the dark-mode contrast on chips"
-            autoFocus
-            maxLength={200}
-          />
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="ticket-priority">Priority</Label>
-            <Select
-              id="ticket-priority"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as Task['priority'])}
-            >
-              {(['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const).map((p) => (
-                <option key={p} value={p}>
-                  {p.toLowerCase()}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="ticket-assignee" hint="optional">
-              Assign to
-            </Label>
-            <Select
-              id="ticket-assignee"
-              value={assigneeId}
-              onChange={(e) => setAssigneeId(e.target.value)}
-            >
-              <option value="">Nobody</option>
-              {members?.map((m) => (
-                <option key={m.user.id} value={m.user.id}>
-                  {m.user.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={create.isPending} disabled={!title.trim()}>
-            Create ticket
+        <div className="ml-auto">
+          <Button size="sm" onClick={() => setCreateIn('SCOPING')}>
+            <Plus className="h-3.5 w-3.5" />
+            New ticket
           </Button>
         </div>
-      </form>
-    </Modal>
+      </div>
+
+      {/*
+        Columns fill the viewport below the nav + sticky header + this toolbar, so
+        every column is the same height whether it holds one ticket or twenty —
+        and each scrolls independently instead of stretching the page.
+      */}
+      <div className="flex h-[calc(100vh-13.5rem)] items-stretch gap-2 overflow-x-auto pb-2">
+        {columns.map((status) => {
+          const meta = STATUS_META[status];
+          const items = byStatus.get(status) ?? [];
+          const isTarget = dragOver === status;
+
+          return (
+            <section
+              key={status}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (dragOver !== status) setDragOver(status);
+              }}
+              onDragLeave={() => setDragOver((s) => (s === status ? null : s))}
+              onDrop={(e) => {
+                setDragOver(null);
+                const id = e.dataTransfer.getData('text/ticket-id');
+                const from = e.dataTransfer.getData('text/ticket-status');
+                if (id && from !== status) update.mutate({ id, payload: { status } });
+              }}
+              className={cn(
+                // Grows to share the width evenly, but never narrower than a
+                // readable card — past that the row scrolls instead.
+                'flex h-full min-w-[248px] flex-1 flex-col overflow-hidden rounded-xl border transition-colors',
+                meta.column,
+                isTarget && 'border-accent/60 bg-accent/[0.07]',
+              )}
+            >
+              <header className="flex shrink-0 items-center gap-1.5 px-2.5 py-2">
+                <span className={cn('h-1.5 w-1.5 rounded-full', meta.dot)} aria-hidden />
+                <h3 className="text-[11px] font-medium uppercase tracking-wide text-ink-soft">
+                  {meta.label}
+                </h3>
+                <span className="text-[11px] tabular-nums text-ink-faint">{items.length}</span>
+              </header>
+
+              <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-1.5 pb-2">
+                {items.length === 0 ? (
+                  <p
+                    className={cn(
+                      'rounded-lg border border-dashed px-2 py-5 text-center text-[11px] transition-colors',
+                      isTarget
+                        ? 'border-accent/50 text-accent'
+                        : 'border-line/60 text-ink-faint/70',
+                    )}
+                  >
+                    Drop here
+                  </p>
+                ) : (
+                  items.map((ticket) => {
+                    // Still being created: it has no server id, so dragging it
+                    // would send a PATCH for a row that does not exist yet.
+                    const pending = isPendingTicket(ticket.id);
+                    return (
+                      <div
+                        key={ticket.id}
+                        draggable={!pending}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/ticket-id', ticket.id);
+                          e.dataTransfer.setData('text/ticket-status', ticket.status);
+                          e.dataTransfer.effectAllowed = 'move';
+                        }}
+                      >
+                        <TicketCard
+                          ticket={ticket}
+                          canDelete={canDelete}
+                          onDelete={(id) => remove.mutate(id)}
+                          deleting={remove.isPending && remove.variables === ticket.id}
+                          pending={pending}
+                        />
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      {modal}
+      {/* The same drawer personal tasks use — comments, activity, attachments. */}
+      <TaskDetailDrawer />
+    </>
   );
 }

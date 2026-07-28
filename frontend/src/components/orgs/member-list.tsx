@@ -2,6 +2,7 @@
 
 import { MoreHorizontal, ShieldCheck, UserMinus, Users, Wrench } from 'lucide-react';
 import { useState } from 'react';
+import { Avatar } from '@/components/tickets/assignee-stack';
 import { Skeleton } from '@/components/ui/feedback';
 import { useOrgMembers, useRemoveMember, useSetMemberRole } from '@/hooks/use-orgs';
 import { formatRelative } from '@/lib/format';
@@ -22,9 +23,9 @@ export function MemberList({ slug, canManage, currentUserId }: MemberListProps) 
 
   if (isLoading) {
     return (
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {[0, 1].map((i) => (
-          <Skeleton key={i} className="h-[68px] w-full rounded-xl" />
+          <Skeleton key={i} className="h-14 w-full rounded-xl" />
         ))}
       </div>
     );
@@ -32,8 +33,9 @@ export function MemberList({ slug, canManage, currentUserId }: MemberListProps) 
 
   if (!members?.length) return null;
 
+  // No card chrome: this lives inside the workspace's side panel, which owns it.
   return (
-    <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
+    <ul className="divide-y divide-line">
       {members.map((member) => (
         <MemberRow
           key={member.id}
@@ -76,24 +78,26 @@ function MemberRow({ slug, member, canManage, isSelf, assignerCount }: MemberRow
   };
 
   return (
-    <li className="flex items-center justify-between gap-4 px-5 py-4">
-      <div className="flex min-w-0 items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-elevated text-xs font-medium text-ink-soft">
-          {member.user.name.slice(0, 2).toUpperCase()}
-        </span>
+    <li className="flex items-center justify-between gap-2 px-1 py-2.5">
+      <div className="flex min-w-0 items-center gap-2.5">
+        <Avatar person={member.user} />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-ink">
             {member.user.name}
             {isSelf && <span className="ml-1.5 text-xs font-normal text-ink-faint">(you)</span>}
           </p>
-          <p className="truncate text-xs text-ink-faint">{member.user.email}</p>
+          {/* Joined date moves into the tooltip: the panel is narrow, and the
+              email is the identifying detail worth the line. */}
+          <p
+            className="truncate text-xs text-ink-faint"
+            title={`joined ${formatRelative(member.joinedAt)}`}
+          >
+            {member.user.email}
+          </p>
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3">
-        <span className="hidden text-xs text-ink-faint sm:inline">
-          joined {formatRelative(member.joinedAt)}
-        </span>
+      <div className="flex shrink-0 items-center gap-1">
         <OrgRoleBadge role={member.role} />
 
         {canManage && (
@@ -103,9 +107,9 @@ function MemberRow({ slug, member, canManage, isSelf, assignerCount }: MemberRow
               disabled={busy}
               aria-label={`Manage ${member.user.name}`}
               aria-expanded={menuOpen}
-              className="rounded-lg p-1.5 text-ink-faint transition-colors hover:bg-elevated hover:text-ink disabled:opacity-40"
+              className="rounded-lg p-1 text-ink-faint transition-colors hover:bg-elevated hover:text-ink disabled:opacity-40"
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
 
             {menuOpen && (

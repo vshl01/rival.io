@@ -1,8 +1,8 @@
 import type { Prisma, Ticket } from '@prisma/client';
 import type { Actor } from '@/access/actor';
-import { findMembership, requireMember, requireOrgMembership } from '@/access/policy';
+import { requireMember, requireOrgMembership } from '@/access/policy';
 import { prisma } from '@/lib/prisma';
-import { emitToUser } from '@/lib/socket';
+import { emitToSprint, emitToUser } from '@/lib/socket';
 import { parseCycle } from '@/modules/cycles/cycles.schemas';
 import { AppError } from '@/utils/AppError';
 import type { CreateTicketInput, ListTicketsQuery, UpdateTicketInput } from './tickets.schemas';
@@ -22,10 +22,13 @@ import type { CreateTicketInput, ListTicketsQuery, UpdateTicketInput } from './t
 
 const ticketInclude = {
   attachments: { orderBy: { createdAt: 'desc' } },
-  assignee: { select: { id: true, name: true, email: true } },
+  assignees: { select: { id: true, name: true, email: true }, orderBy: { name: 'asc' } },
   sprint: {
     select: { id: true, number: true, name: true, cycle: { select: { year: true, month: true } } },
   },
+  /// Lets a ticket-agnostic UI resolve the org (and therefore its members)
+  /// without knowing the route it was opened from.
+  org: { select: { slug: true, name: true, key: true } },
   _count: { select: { attachments: true, activities: true, comments: true } },
 } satisfies Prisma.TicketInclude;
 
@@ -33,9 +36,14 @@ const personSelect = { id: true, name: true, email: true } satisfies Prisma.User
 
 type TicketWithRelations = Prisma.TicketGetPayload<{ include: typeof ticketInclude }>;
 
-/** Record an audit entry and notify. Best-effort, never blocks. */
+/**
+ * Record an audit entry and notify.
+ *
+ * The event reaches the sprint room as well as the creator, so a timeline open on
+ * someone else's screen grows as the work happens rather than when they reload.
+ */
 async function logActivity(
-  ticket: Pick<Ticket, 'id' | 'createdById'>,
+  ticket: Pick<Ticket, 'id' | 'createdById'> & { sprintId?: string | null },
   actorId: string,
   action: string,
   metadata?: Prisma.InputJsonValue,
@@ -44,25 +52,31 @@ async function logActivity(
     data: { ticketId: ticket.id, actorId, action, metadata },
   });
   emitToUser(ticket.createdById, 'activity:created', activity);
+  if (ticket.sprintId) emitToSprint(ticket.sprintId, 'activity:created', activity);
 }
 
 /**
- * Push a change to the people who care about this ticket.
+ * Push a change to everyone who cares about this ticket.
  *
- * Interim: a ticket now has an audience rather than an owner, but rooms are still
- * keyed per user. Build step 5 replaces this with `sprint:<id>` / `org:<id>`
- * rooms; until then creator and assignee are notified directly, which covers the
- * common case without pretending to be complete.
+ * Two audiences, and both are needed:
+ *
+ *  · the SPRINT room — whoever currently has that board open, which is what makes
+ *    a dragged card move on a colleague's screen without a refresh.
+ *  · the creator and every assignee — they care about their own work whether or
+ *    not they are looking at the board.
+ *
+ * Socket.IO de-duplicates within one `to()` call but not across them, so a person
+ * who is both watching the board and assigned receives the event twice. That is
+ * harmless: every handler either patches by id or refetches, both idempotent.
  */
 function emitTicket(
-  ticket: Pick<Ticket, 'createdById' | 'assigneeId'>,
+  ticket: { createdById: string; sprintId?: string | null; assignees?: { id: string }[] },
   event: Parameters<typeof emitToUser>[1],
   payload: unknown,
 ) {
-  emitToUser(ticket.createdById, event, payload);
-  if (ticket.assigneeId && ticket.assigneeId !== ticket.createdById) {
-    emitToUser(ticket.assigneeId, event, payload);
-  }
+  if (ticket.sprintId) emitToSprint(ticket.sprintId, event, payload);
+  const audience = new Set([ticket.createdById, ...(ticket.assignees ?? []).map((a) => a.id)]);
+  for (const userId of audience) emitToUser(userId, event, payload);
 }
 
 /** Field-level diff for the activity log. */
@@ -108,10 +122,41 @@ async function accessOrThrow(actor: Actor, id: string): Promise<AccessResult> {
   return { ticket, role: membership?.role ?? null };
 }
 
-/** An assignee must belong to the org, or a ticket could be pushed to someone with no access. */
-async function assertAssignable(assigneeId: string, orgId: string) {
-  const member = await findMembership(assigneeId, orgId);
-  if (!member) throw AppError.badRequest('That person is not a member of this organisation');
+/**
+ * Every assignee must belong to the org, or a ticket could be pushed to someone
+ * with no access to it. Checked in ONE query rather than per id.
+ */
+async function assertAllAssignable(userIds: string[], orgId: string) {
+  if (userIds.length === 0) return;
+  const unique = [...new Set(userIds)];
+  const members = await prisma.orgMembership.count({
+    where: { orgId, userId: { in: unique } },
+  });
+  if (members !== unique.length) {
+    throw AppError.badRequest('Every assignee must be a member of this organisation');
+  }
+}
+
+/**
+ * Log an assignee change explicitly.
+ *
+ * `diffChanges` only sees scalar columns, so a relation change would otherwise
+ * vanish from the audit trail — the one thing the trail exists to prevent. Names
+ * are stored, not ids, so the entry stays readable without a join.
+ */
+async function logAssigneeChange(
+  ticket: { id: string; createdById: string },
+  actorId: string,
+  before: { id: string; name: string }[],
+  after: { id: string; name: string }[],
+) {
+  const beforeIds = new Set(before.map((p) => p.id));
+  const afterIds = new Set(after.map((p) => p.id));
+  const added = after.filter((p) => !beforeIds.has(p.id)).map((p) => p.name);
+  const removed = before.filter((p) => !afterIds.has(p.id)).map((p) => p.name);
+  if (added.length === 0 && removed.length === 0) return;
+
+  await logActivity(ticket, actorId, 'ticket.assignees_changed', { added, removed });
 }
 
 /** Resolve a sprint from the URL triple, scoped to the org. */
@@ -194,8 +239,10 @@ export const ticketsService = {
 
     return prisma.ticket.findMany({
       where: { sprintId: sprint.id },
-      // Board order: open work first, most urgent at the top of each group.
-      orderBy: [{ status: 'asc' }, { priority: 'desc' }, { createdAt: 'asc' }],
+      // Ordered by urgency, NOT status: Postgres appends newly added enum values
+      // to the end of its own ordering, so `status asc` would put SCOPING and
+      // BLOCKED after DONE. The board groups by status in the UI instead.
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
       include: ticketInclude,
     });
   },
@@ -217,7 +264,8 @@ export const ticketsService = {
     const { org } = await requireOrgMembership(actor, slug);
     const sprint = await findSprintOrThrow(org.id, cycleKey, number);
 
-    if (input.assigneeId) await assertAssignable(input.assigneeId, org.id);
+    const assigneeIds = [...new Set(input.assigneeIds ?? [])];
+    await assertAllAssignable(assigneeIds, org.id);
 
     const { ticketSeq } = await prisma.organization.update({
       where: { id: org.id },
@@ -234,11 +282,11 @@ export const ticketsService = {
         dueDate: input.dueDate ?? null,
         completedAt: input.status === 'DONE' ? new Date() : null,
         createdById: actor.id,
-        assigneeId: input.assigneeId ?? null,
         sprintId: sprint.id,
         // Denormalised alongside sprintId — written only here.
         orgId: org.id,
         key: `${org.key}-${ticketSeq}`,
+        assignees: { connect: assigneeIds.map((id) => ({ id })) },
       },
       include: ticketInclude,
     });
@@ -259,18 +307,28 @@ export const ticketsService = {
   async update(actor: Actor, id: string, input: UpdateTicketInput) {
     const { ticket: before } = await accessOrThrow(actor, id);
 
-    if (input.assigneeId && before.orgId) {
-      await assertAssignable(input.assigneeId, before.orgId);
+    // `assigneeIds` is a relation, so it is applied separately from the scalars.
+    const { assigneeIds, ...scalars } = input;
+    if (assigneeIds && before.orgId) {
+      await assertAllAssignable(assigneeIds, before.orgId);
     }
 
-    const changes = diffChanges(before, input);
-    const data: Prisma.TicketUpdateInput = { ...input };
+    const changes = diffChanges(before, scalars);
+    const data: Prisma.TicketUpdateInput = { ...scalars };
+    if (assigneeIds) {
+      // `set` REPLACES the whole set, which is what the API promises.
+      data.assignees = { set: [...new Set(assigneeIds)].map((id) => ({ id })) };
+    }
     // Keep completedAt consistent with status transitions.
     if (input.status && input.status !== before.status) {
       data.completedAt = input.status === 'DONE' ? new Date() : null;
     }
 
     const ticket = await prisma.ticket.update({ where: { id }, data, include: ticketInclude });
+
+    if (assigneeIds) {
+      await logAssigneeChange(ticket, actor.id, before.assignees, ticket.assignees);
+    }
 
     if (Object.keys(changes).length > 0) {
       const statusChanged = 'status' in changes;

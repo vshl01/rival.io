@@ -62,11 +62,29 @@ default view is three months.
 per-user — otherwise a user at 00:30 IST on 1 August and the server in UTC
 disagree about which cycle to upsert.
 
-### Sprint dates are not clamped to their cycle
+### A sprint starts in its own month; it may end outside it
 
-A sprint filed under the July cycle may have an August deadline. The cycle is an
-organisational bucket, not a date constraint. The only invariant enforced is
-`deadline > startsAt`.
+Two rules, deliberately asymmetric:
+
+| | enforced? | why |
+| --- | --- | --- |
+| `deadline > startsAt` | yes | a sprint that ends before it starts is a typo |
+| `startsAt` inside the cycle month | **yes** | the cycle is where the sprint lives |
+| `deadline` inside the cycle month | no | 28 July → 8 August is an ordinary sprint |
+
+Filing a July sprint that starts on 12 August is not a filing decision, it is a
+mistake — usually made by opening the wrong month's *+ Sprint* button. It also
+breaks the board: July would list work that has not begun while August looks
+empty. So the start is clamped and the deadline is free.
+
+The check lives in `sprintsService` rather than the Zod schema, because the cycle
+key is a path parameter the schema cannot see. It resolves "which month is this
+date in?" through `yearMonthOf` — the cycles module's single fixed-zone helper —
+so it can never disagree with the code that decides which month is current.
+
+Re-scheduling is checked the same way: there is no endpoint to re-file a sprint
+under a different month, so a `PATCH` that moved its start out of that month would
+leave it stranded.
 
 ---
 
@@ -100,7 +118,7 @@ which the role follows.
 | --- | :---: | :---: |
 | Create ticket | ✅ | ✅ |
 | Read tickets in their org | ✅ | ✅ |
-| Update ticket, incl. assigning it to anyone | ✅ | ✅ |
+| Update ticket | ✅ | ✅ |
 | **Delete ticket** | ✅ | ❌ |
 | Create cycle / sprint, set deadline | ✅ | ❌ |
 | Accept or reject join requests | ✅ | ❌ |
@@ -114,6 +132,26 @@ without one, workers must ask an assigner to clean up every typo.
 A platform `ADMIN` may **read** any org (for the admin console) but is not
 granted write access by virtue of being an admin. Writes require real
 membership.
+
+### Assignees are a set, not a person
+
+`Ticket.assignees` is a many-to-many relation (`_TicketAssignees`), not a single
+`assigneeId` column. Real work is shared, and one column forces a lie about who is
+responsible for it — the second person ends up named in the description, where
+nothing can filter or count them.
+
+Rules:
+
+- Any member may add or remove any member, at any time. There is no "owner" of the
+  assignment.
+- Every assignee must be a member of the ticket's org, verified in one `count`
+  query rather than one per id. Otherwise a ticket could be pushed at someone who
+  cannot open it.
+- `PATCH` **replaces** the whole set (`assignees: { set: [...] }`). The client
+  always sends the full list, so there is no add/remove endpoint pair to keep
+  consistent, and a dropped request cannot leave a half-applied change.
+- Sending no `assigneeIds` at all leaves the set untouched — distinct from `[]`,
+  which clears it.
 
 ### Sprint leadership
 
@@ -200,23 +238,52 @@ key is an identity that appears in URLs, comments and history.
 - **`ticketKey`, `orgId`, `sprintId`** — so org-level events ("member joined",
   "sprint created") can be logged, and so the log is readable without a join.
 
+**Relation changes are logged explicitly.** The generic diff walks the scalar
+columns of the row, so it cannot see the assignee set at all. Reassignment — one
+of the few things people actually argue about — would silently leave no trace.
+`ticket.assignees_changed` is therefore written by hand with `{ added, removed }`
+as *names*, so the entry stays readable years later even if those accounts are
+gone. Any future relation field needs the same treatment.
+
 Audit history only — no live presence layer.
 
 ---
 
 ## 7. Realtime
 
-Rooms move from per-user to per-scope, because a ticket now has an audience
-rather than an owner:
+Two kinds of room, because a ticket has an audience rather than an owner:
 
-| room | receives |
-| --- | --- |
-| `user:<id>` | notifications addressed to one person |
-| `org:<id>` | membership and sprint structure changes |
-| `sprint:<id>` | ticket and comment activity |
+| room | receives | joined |
+| --- | --- | --- |
+| `user:<id>` | notifications, and their own personal tasks | automatically, at connection |
+| `sprint:<id>` | ticket, comment and activity events for one board | on request, after a membership check |
 
-Sockets join rooms from membership at handshake, and must re-join when
-membership changes mid-session.
+Every ticket event goes to **both**: the sprint room, so whoever has that board
+open sees the card move; and the creator and assignees, who care about their own
+work whether or not they are looking. A person in both receives it twice, which
+is harmless — every handler patches by id or refetches.
+
+### Why the sprint room is joined on request, not at handshake
+
+A room name is a client-supplied string. `socket.join('sprint:' + whatever)` with
+no check is a subscription to another organisation's board, so `sprint:watch`
+verifies membership first (one query — `Sprint.orgId` is denormalised) and
+silently ignores anything else. Silently, because there is nothing the client can
+do about a refusal, and "that sprint exists but is not yours" is a probing oracle
+the REST API does not offer.
+
+Joining at handshake was the alternative and it is worse: it would mean loading
+every sprint of every org the user belongs to on connect, and re-joining whenever
+membership or the sprint list changed.
+
+**Reconnects re-join.** A reconnect is a new session id and Socket.IO does not
+restore rooms, so `useWatchSprint` re-emits whenever `connected` flips back to
+true. Without that, a board silently stops updating after a network blip — the
+worst kind of failure, because nothing looks broken.
+
+The client patches its board cache from the pushed payload *and* invalidates.
+The patch is what makes a colleague's drag land instantly; the refetch is what
+makes it correct if the payload was ever incomplete.
 
 ---
 
@@ -225,12 +292,12 @@ membership changes mid-session.
 1. ✅ Schema + migration + `src/access/` policy layer
 2. ✅ Orgs · membership · join requests · accept/reject
 3. ✅ Cycles (lazy upsert) + sprints
-4. ✅ `Task` → `Ticket` rename, sprint scoping, `assigneeId`, keys, policy checks
-5. Realtime rooms replace `emitToUser`
-6. ✅ Notifications REST + sidebar drawer — socket push still pending (see §7)
+4. ✅ `Task` → `Ticket` rename, sprint scoping, assignees, keys, policy checks
+5. ✅ `sprint:<id>` rooms alongside `user:<id>` — boards update live for everyone
+6. ✅ Notifications REST + sidebar drawer, pushed over the socket
 7. Widen `Activity` (§6)
-8. ◐ Frontend: organisations hub, org workspace, roster, join requests,
-   notifications drawer done; sprint board waits on step 3
+8. ✅ Frontend: organisations hub, org workspace, roster, join requests,
+   notifications drawer, sprint board
 9. ✅ Cross-org denial tests (`backend/tests/orgs.test.ts`)
 
 The notifications drawer polls its unread count every 60s rather than receiving a
@@ -261,12 +328,20 @@ itself — the path adds nothing it does not already know.
 - **Concurrent-edit protection** is still open. Two people on one ticket is now
   normal and last-write-wins silently clobbers; the fix is rejecting a write whose
   `updatedAt` is stale.
-- **Realtime for tickets is interim.** `emitTicket` notifies the creator and
-  assignee directly, because rooms are still keyed per user. Step 5 replaces this
-  with `sprint:<id>` rooms so every member sees board changes live. Until then a
-  third member must refetch.
+- **The org has no room of its own.** Membership changes (someone joins, a role
+  changes) reach the people involved through their `user:<id>` notification, and
+  the assigner's queue refetches on that event. An `org:<id>` room would let a
+  roster update reach members who are merely watching — worth adding when
+  something on screen depends on it, which nothing currently does.
 
 ### Conventions worth knowing
+
+**One test run at a time.** Every test truncates every table and the test database
+is shared, so two concurrent runs delete each other's fixtures. The symptoms are
+nothing like the cause — a `POST` returning 201 for a row that no longer exists,
+duplicate-slug errors nobody typed twice, `deadlock detected` from two `deleteMany`
+batches meeting. `tests/global-setup.ts` now refuses to start while another run
+holds the lock.
 
 **Reserved slugs.** `orgs.service` rejects slugs that would collide with a static
 route under `/dashboard` (`organizations`, `admin`, `settings`, …). Next resolves

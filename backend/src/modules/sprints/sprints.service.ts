@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client';
 import type { Actor } from '@/access/actor';
 import { requireOrgAssigner, requireOrgMembership } from '@/access/policy';
 import { prisma } from '@/lib/prisma';
-import { ensureCycle } from '@/modules/cycles/cycles.service';
+import { ensureCycle, yearMonthOf } from '@/modules/cycles/cycles.service';
 import { formatCycle, parseCycle } from '@/modules/cycles/cycles.schemas';
 import { AppError } from '@/utils/AppError';
 import type { CreateSprintInput, UpdateSprintInput } from './sprints.schemas';
@@ -32,6 +32,33 @@ function toDto({ cycle, ...sprint }: SprintRow) {
  * Scoped by org AND cycle, so a number from one month can never resolve to a
  * sprint in another — the number alone is not unique across the organisation.
  */
+/**
+ * A sprint must START inside the month it is filed under.
+ *
+ * The cycle is where a sprint lives, and "July, starting 12 August" is not a
+ * filing decision — it is a mistake, usually made by opening the wrong month's
+ * button. It would also break the board: the July block would list work that has
+ * not begun while August looks empty.
+ *
+ * The DEADLINE is deliberately not constrained. A sprint running from 28 July to
+ * 8 August is ordinary, and forcing it to end inside its month would make
+ * month-end sprints impossible.
+ *
+ * The month is resolved in the cycles module's fixed zone, not UTC — the same
+ * decision that decides which month is current, so the two cannot disagree.
+ */
+function assertStartsInCycle(startsAt: Date, cycleKey: string) {
+  const filedUnder = parseCycle(cycleKey);
+  const starts = yearMonthOf(startsAt);
+
+  if (starts.year !== filedUnder.year || starts.month !== filedUnder.month) {
+    throw AppError.badRequest(
+      `A sprint filed under ${cycleKey} must start in that month — this one starts in ` +
+        `${formatCycle(starts.year, starts.month)}. Create it in that month instead.`,
+    );
+  }
+}
+
 async function findSprintOrThrow(orgId: string, cycleKey: string, number: number) {
   const { year, month } = parseCycle(cycleKey);
 
@@ -85,6 +112,7 @@ export const sprintsService = {
    */
   async create(actor: Actor, slug: string, cycleKey: string, input: CreateSprintInput) {
     const { org } = await requireOrgAssigner(actor, slug);
+    assertStartsInCycle(input.startsAt, cycleKey);
     // Filing a sprint into a month nobody has opened yet must work.
     const cycle = await ensureCycle(org.id, cycleKey);
 
@@ -130,6 +158,10 @@ export const sprintsService = {
     if (deadline <= startsAt) {
       throw AppError.badRequest('The deadline must be after the start date');
     }
+    // Re-scheduling must not move a sprint out of the month it is filed under —
+    // there is no way to change that filing, so the sprint would be unreachable
+    // from the month it actually belongs to.
+    if (input.startsAt) assertStartsInCycle(input.startsAt, cycleKey);
 
     const updated = await prisma.sprint.update({
       where: { id: sprint.id },

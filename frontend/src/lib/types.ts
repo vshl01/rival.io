@@ -1,7 +1,13 @@
 // Shared domain types — mirror the backend API contract.
 
 export type Role = 'USER' | 'ADMIN';
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
+export type TaskStatus =
+  | 'SCOPING'
+  | 'TODO'
+  | 'IN_PROGRESS'
+  | 'BLOCKED'
+  | 'DONE'
+  | 'REMOVED';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 export type SortField = 'dueDate' | 'priority' | 'createdAt' | 'updatedAt' | 'title';
 export type SortOrder = 'asc' | 'desc';
@@ -42,8 +48,11 @@ export interface Task {
    * what distinguishes the two kinds (docs/architecture.md §1).
    */
   key?: string | null;
-  assignee?: Person | null;
+  /** Many-to-many: work is often shared. Empty means unassigned. */
+  assignees?: Person[];
   sprint?: { id: string; number: number; name: string } | null;
+  /** Present on a sprint ticket; lets the UI reach the org's member list. */
+  org?: { slug: string; name: string; key: string } | null;
 }
 
 export interface Comment {

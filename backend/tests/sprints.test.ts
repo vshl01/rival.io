@@ -38,10 +38,34 @@ async function makeOrgWithWorker() {
   return { assigner, worker, slug };
 }
 
+/**
+ * A day inside the current cycle month, at 09:00 UTC.
+ *
+ * Derived rather than hardcoded because a sprint must now START in the month it
+ * is filed under — a fixed July date would start failing in August. 09:00 UTC is
+ * mid-afternoon in the service's zone, so the calendar day is the same in both.
+ */
+function dayInCurrentCycle(day: number, hour = 9): string {
+  return dayInCycle(currentCycleKey(), day, hour);
+}
+
+/** The same, for any `YYYY-MM` cycle — a sprint must start in its own month. */
+function dayInCycle(cycle: string, day: number, hour = 9): string {
+  const [year, month] = cycle.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, hour)).toISOString();
+}
+
 const sprintBody = (name = 'Sprint one') => ({
   name,
-  startsAt: '2026-07-01T09:00:00.000Z',
-  deadline: '2026-07-14T17:00:00.000Z',
+  startsAt: dayInCurrentCycle(2),
+  deadline: dayInCurrentCycle(15, 17),
+});
+
+/** A valid body for a sprint filed under `cycle`, whichever month that is. */
+const sprintBodyIn = (cycle: string, name: string) => ({
+  name,
+  startsAt: dayInCycle(cycle, 2),
+  deadline: dayInCycle(cycle, 15, 17),
 });
 
 beforeEach(resetDb);
@@ -195,7 +219,9 @@ describe('POST .../cycles/:cycle/sprints', () => {
     const b = await request(app)
       .post(`/api/orgs/${slug}/cycles/${nextMonth}/sprints`)
       .set(auth(assigner.token))
-      .send(sprintBody('Beta'));
+      // Dates inside NEXT month: a sprint has to start in the month it is filed
+      // under, so `sprintBody()`'s current-month dates would be a 400 here.
+      .send(sprintBodyIn(nextMonth, 'Beta'));
 
     expect(a.status).toBe(201);
     expect(b.status).toBe(201);
@@ -229,24 +255,45 @@ describe('POST .../cycles/:cycle/sprints', () => {
       .set(auth(assigner.token))
       .send({
         name: 'Backwards',
-        startsAt: '2026-07-14T09:00:00.000Z',
-        deadline: '2026-07-01T09:00:00.000Z',
+        startsAt: dayInCurrentCycle(14),
+        deadline: dayInCurrentCycle(2),
       });
     expect(res.status).toBe(400);
   });
 
   it('allows a deadline outside the cycle’s own month', async () => {
     const { assigner, slug } = await makeOrgWithWorker();
-    // The cycle is an organisational bucket, not a date constraint (docs §2).
+    // Only the START is clamped to the month; a sprint may run past it (docs §2).
     const res = await request(app)
       .post(`/api/orgs/${slug}/cycles/${currentCycleKey()}/sprints`)
       .set(auth(assigner.token))
       .send({
         name: 'Spills over',
-        startsAt: '2026-07-20T09:00:00.000Z',
-        deadline: '2026-09-05T17:00:00.000Z',
+        startsAt: dayInCurrentCycle(20),
+        // Two months out, so this is outside the cycle whatever month it runs in.
+        deadline: new Date(new Date(dayInCurrentCycle(20)).getTime() + 60 * 864e5).toISOString(),
       });
     expect(res.status).toBe(201);
+  });
+
+  it('refuses a start outside the month it is filed under', async () => {
+    const { assigner, slug } = await makeOrgWithWorker();
+    const cycle = currentCycleKey();
+    // Filing July work that begins in August is the wrong-button mistake (docs §2).
+    const nextMonthStart = new Date(new Date(dayInCurrentCycle(20)).getTime() + 40 * 864e5);
+
+    const res = await request(app)
+      .post(`/api/orgs/${slug}/cycles/${cycle}/sprints`)
+      .set(auth(assigner.token))
+      .send({
+        name: 'Wrong month',
+        startsAt: nextMonthStart.toISOString(),
+        deadline: new Date(nextMonthStart.getTime() + 7 * 864e5).toISOString(),
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/must start in that month/i);
+    expect(await prisma.sprint.count()).toBe(0);
   });
 
   it('refuses a month far outside the allowed range', async () => {
@@ -330,9 +377,27 @@ describe('reading, updating and deleting a sprint', () => {
     const res = await request(app)
       .patch(`/api/orgs/${slug}/cycles/${cycle}/sprints/1`)
       .set(auth(assigner.token))
-      .send({ deadline: '2026-06-01T09:00:00.000Z' });
+      .send({ deadline: dayInCurrentCycle(1) });
 
     expect(res.status).toBe(400);
+  });
+
+  it('refuses re-scheduling a start out of the month it is filed under', async () => {
+    const { assigner, slug, cycle } = await makeSprint();
+    // There is no way to re-file a sprint under another month, so moving its
+    // start out of this one would strand it.
+    const nextMonth = new Date(new Date(dayInCurrentCycle(20)).getTime() + 40 * 864e5);
+
+    const res = await request(app)
+      .patch(`/api/orgs/${slug}/cycles/${cycle}/sprints/1`)
+      .set(auth(assigner.token))
+      .send({
+        startsAt: nextMonth.toISOString(),
+        deadline: new Date(nextMonth.getTime() + 7 * 864e5).toISOString(),
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toMatch(/must start in that month/i);
   });
 
   it('refuses an empty update', async () => {

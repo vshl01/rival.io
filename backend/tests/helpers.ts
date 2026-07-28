@@ -49,7 +49,7 @@ export async function makeUser(overrides: Partial<{ email: string; password: str
   }
   return {
     token: res.body.data.accessToken as string,
-    user: res.body.data.user as { id: string; email: string; role: string },
+    user: res.body.data.user as { id: string; email: string; name: string; role: string },
     email,
     password,
   };

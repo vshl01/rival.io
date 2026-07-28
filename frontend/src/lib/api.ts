@@ -188,6 +188,8 @@ export type CreateTaskPayload = {
   status?: Task["status"];
   priority?: Task["priority"];
   dueDate?: string | null;
+  /** Sprint tickets only. On update this REPLACES the whole set. */
+  assigneeIds?: string[];
 };
 export type UpdateTaskPayload = Partial<CreateTaskPayload>;
 

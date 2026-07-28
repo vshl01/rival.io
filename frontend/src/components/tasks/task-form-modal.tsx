@@ -10,12 +10,14 @@ import { Modal } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/feedback';
 import { useCreateTask, useTask, useUpdateTask } from '@/hooks/use-tasks';
 import { PRIORITY_ORDER, STATUS_ORDER, PRIORITY_META, STATUS_META } from '@/lib/task-meta';
+import type { TaskStatus } from '@/lib/types';
 import { useUi } from '@/store/ui';
 
 const schema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
   description: z.string().trim().max(5000).optional(),
-  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE']),
+  // Kept in step with STATUS_ORDER so a new workflow state needs one edit.
+  status: z.enum(STATUS_ORDER as [TaskStatus, ...TaskStatus[]]),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']),
   dueDate: z.string().optional(),
 });
@@ -39,7 +41,7 @@ export function TaskFormModal() {
     register,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors },
   } = useForm<Values>({ resolver: zodResolver(schema), defaultValues: DEFAULTS });
 
   // Prefill on edit; reset to blank on create.
@@ -58,7 +60,15 @@ export function TaskFormModal() {
     }
   }, [open, isEdit, task, reset]);
 
-  const onSubmit = async (values: Values) => {
+  /**
+   * Close immediately and let the mutation finish in the background.
+   *
+   * Both mutations write the change into the cache before the request goes out,
+   * so the list is already correct behind this modal — holding it open on a
+   * spinner would only hide a result the user can already see. A failure rolls
+   * the cache back and says why in a toast.
+   */
+  const onSubmit = (values: Values) => {
     const payload = {
       title: values.title,
       description: values.description?.trim() ? values.description.trim() : null,
@@ -66,13 +76,9 @@ export function TaskFormModal() {
       priority: values.priority,
       dueDate: values.dueDate ? values.dueDate : null,
     };
-    try {
-      if (isEdit && taskId) await updateTask.mutateAsync({ id: taskId, payload });
-      else await createTask.mutateAsync(payload);
-      close();
-    } catch {
-      /* errors surface via toast in the mutation hooks */
-    }
+    if (isEdit && taskId) updateTask.mutate({ id: taskId, payload });
+    else createTask.mutate(payload);
+    close();
   };
 
   return (
@@ -127,7 +133,7 @@ export function TaskFormModal() {
             <Button type="button" variant="ghost" onClick={close}>
               Cancel
             </Button>
-            <Button type="submit" loading={isSubmitting}>
+            <Button type="submit">
               {isEdit ? 'Save changes' : 'Create task'}
             </Button>
           </div>
