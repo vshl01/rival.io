@@ -1,9 +1,19 @@
 import type {
   Activity,
   AdminUser,
+  AppNotification,
   Attachment,
   Comment,
+  Cycle,
+  DirectoryOrganization,
+  JoinRequest,
+  JoinStatus,
+  MyJoinRequest,
+  OrgMember,
+  OrgRole,
+  Organization,
   PageMeta,
+  SprintDetail,
   Task,
   TaskFilters,
   User,
@@ -181,6 +191,21 @@ export type CreateTaskPayload = {
 };
 export type UpdateTaskPayload = Partial<CreateTaskPayload>;
 
+export type CreateOrgPayload = {
+  name: string;
+  /** Both are derived from `name` server-side when omitted. */
+  slug?: string;
+  key?: string;
+};
+
+export type CreateSprintPayload = {
+  name: string;
+  /** ISO strings. The deadline must be after the start. */
+  startsAt: string;
+  deadline: string;
+};
+export type UpdateSprintPayload = Partial<CreateSprintPayload>;
+
 export const api = {
   auth: {
     signup: (input: { name: string; email: string; password: string }) =>
@@ -242,7 +267,147 @@ export const api = {
     removeComment: (taskId: string, commentId: string) =>
       request(`/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" }),
   },
+  orgs: {
+    /** Organisations the caller belongs to, each with `myRole`. */
+    listMine: () => request<Organization[]>("/orgs").then((r) => r.data),
+    get: (slug: string) =>
+      request<Organization>(`/orgs/${slug}`).then((r) => r.data),
+    create: (payload: CreateOrgPayload) =>
+      request<Organization>("/orgs", { method: "POST", body: payload }).then(
+        (r) => r.data,
+      ),
+    rename: (slug: string, name: string) =>
+      request<Organization>(`/orgs/${slug}`, {
+        method: "PATCH",
+        body: { name },
+      }).then((r) => r.data),
+
+    /** Organisations the caller is NOT in — the "find one to join" directory. */
+    directory: (params: { q?: string; page?: number } = {}) => {
+      const p = new URLSearchParams();
+      if (params.q) p.set("q", params.q);
+      if (params.page) p.set("page", String(params.page));
+      const qs = p.toString();
+      return request<DirectoryOrganization[]>(
+        `/orgs/directory${qs ? `?${qs}` : ""}`,
+      ).then((r) => ({ items: r.data, meta: r.meta! }));
+    },
+
+    members: (slug: string) =>
+      request<OrgMember[]>(`/orgs/${slug}/members`).then((r) => r.data),
+    setMemberRole: (slug: string, userId: string, role: OrgRole) =>
+      request<{ id: string; role: OrgRole }>(`/orgs/${slug}/members/${userId}`, {
+        method: "PATCH",
+        body: { role },
+      }).then((r) => r.data),
+    removeMember: (slug: string, userId: string) =>
+      request<{ removed: boolean }>(`/orgs/${slug}/members/${userId}`, {
+        method: "DELETE",
+      }).then((r) => r.data),
+    /** Leave an org yourself — distinct from being removed. */
+    leave: (slug: string) =>
+      request<{ left: boolean }>(`/orgs/${slug}/membership`, {
+        method: "DELETE",
+      }).then((r) => r.data),
+
+    /** The rolling window of months — current plus the next two by default. */
+    cycles: (slug: string, months?: number) =>
+      request<Cycle[]>(
+        `/orgs/${slug}/cycles${months ? `?months=${months}` : ""}`,
+      ).then((r) => r.data),
+
+    sprints: {
+      list: (slug: string, cycle: string) =>
+        request<SprintDetail[]>(`/orgs/${slug}/cycles/${cycle}/sprints`).then(
+          (r) => r.data,
+        ),
+      get: (slug: string, cycle: string, num: number) =>
+        request<SprintDetail>(
+          `/orgs/${slug}/cycles/${cycle}/sprints/${num}`,
+        ).then((r) => r.data),
+      create: (slug: string, cycle: string, payload: CreateSprintPayload) =>
+        request<SprintDetail>(`/orgs/${slug}/cycles/${cycle}/sprints`, {
+          method: "POST",
+          body: payload,
+        }).then((r) => r.data),
+      update: (
+        slug: string,
+        cycle: string,
+        num: number,
+        payload: UpdateSprintPayload,
+      ) =>
+        request<SprintDetail>(`/orgs/${slug}/cycles/${cycle}/sprints/${num}`, {
+          method: "PATCH",
+          body: payload,
+        }).then((r) => r.data),
+      remove: (slug: string, cycle: string, num: number) =>
+        request<{ id: string; number: number }>(
+          `/orgs/${slug}/cycles/${cycle}/sprints/${num}`,
+          { method: "DELETE" },
+        ).then((r) => r.data),
+    },
+
+    /** Tickets on one sprint's board. A single ticket uses `api.tasks.*` by id. */
+    tickets: {
+      list: (slug: string, cycle: string, sprint: number) =>
+        request<Task[]>(
+          `/orgs/${slug}/cycles/${cycle}/sprints/${sprint}/tickets`,
+        ).then((r) => r.data),
+      create: (
+        slug: string,
+        cycle: string,
+        sprint: number,
+        payload: CreateTaskPayload & { assigneeId?: string | null },
+      ) =>
+        request<Task>(`/orgs/${slug}/cycles/${cycle}/sprints/${sprint}/tickets`, {
+          method: "POST",
+          body: payload,
+        }).then((r) => r.data),
+    },
+
+    joinRequests: (slug: string, status: JoinStatus = "PENDING") =>
+      request<JoinRequest[]>(`/orgs/${slug}/join-requests?status=${status}`).then(
+        (r) => r.data,
+      ),
+    requestToJoin: (slug: string, message?: string) =>
+      request<MyJoinRequest>(`/orgs/${slug}/join-requests`, {
+        method: "POST",
+        body: message ? { message } : {},
+      }).then((r) => r.data),
+    decideJoinRequest: (slug: string, requestId: string, accept: boolean) =>
+      request<JoinRequest>(
+        `/orgs/${slug}/join-requests/${requestId}/${accept ? "accept" : "reject"}`,
+        { method: "POST" },
+      ).then((r) => r.data),
+  },
+  notifications: {
+    list: (params: { unreadOnly?: boolean; page?: number } = {}) => {
+      const p = new URLSearchParams();
+      if (params.unreadOnly) p.set("unreadOnly", "true");
+      if (params.page) p.set("page", String(params.page));
+      const qs = p.toString();
+      return request<AppNotification[]>(
+        `/notifications${qs ? `?${qs}` : ""}`,
+      ).then((r) => ({
+        items: r.data,
+        meta: r.meta as (PageMeta & { unread: number }) | undefined,
+      }));
+    },
+    unreadCount: () =>
+      request<{ unread: number }>("/notifications/unread-count").then(
+        (r) => r.data.unread,
+      ),
+    markRead: (id: string) =>
+      request<{ id: string }>(`/notifications/${id}/read`, { method: "POST" }),
+    markAllRead: () =>
+      request<{ updated: number }>("/notifications/read-all", {
+        method: "POST",
+      }).then((r) => r.data),
+  },
   users: {
     list: () => request<AdminUser[]>("/users").then((r) => r.data),
+    /** The caller's own join requests across every org. */
+    myJoinRequests: () =>
+      request<MyJoinRequest[]>("/users/me/join-requests").then((r) => r.data),
   },
 };

@@ -8,7 +8,9 @@ import { env } from '@/config/env';
 import { uploadRoot } from '@/middleware/upload';
 import { errorHandler, notFoundHandler } from '@/middleware/error';
 import { authRouter } from '@/modules/auth/auth.routes';
-import { tasksRouter } from '@/modules/tasks/tasks.routes';
+import { notificationsRouter } from '@/modules/notifications/notifications.routes';
+import { orgsRouter } from '@/modules/orgs/orgs.routes';
+import { personalTasksRouter } from '@/modules/tickets/tickets.routes';
 import { usersRouter } from '@/modules/users/users.routes';
 
 /**
@@ -40,7 +42,10 @@ export function createApp(): Express {
 
   // Feature routers
   app.use('/api/auth', authRouter);
-  app.use('/api/tasks', tasksRouter);
+  // Personal tasks. Sprint tickets hang off their sprint, under /api/orgs.
+  app.use('/api/tasks', personalTasksRouter);
+  app.use('/api/orgs', orgsRouter);
+  app.use('/api/notifications', notificationsRouter);
   app.use('/api/users', usersRouter);
 
   // 404 + centralized error handling (must be last).

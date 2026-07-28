@@ -40,7 +40,7 @@ function AdminConsole() {
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-9 w-32 shrink-0 rounded-full" />)
         ) : (
           <>
-            <Chip active={!ownerId} onClick={() => setOwnerId(undefined)} label="Everyone" count={users?.reduce((a, u) => a + u._count.tasks, 0)} />
+            <Chip active={!ownerId} onClick={() => setOwnerId(undefined)} label="Everyone" count={users?.reduce((a, u) => a + u._count.tickets, 0)} />
             {users?.map((u) => (
               <Chip
                 key={u.id}
@@ -48,7 +48,7 @@ function AdminConsole() {
                 onClick={() => setOwnerId(u.id)}
                 label={u.name}
                 sub={u.role === 'ADMIN' ? 'admin' : undefined}
-                count={u._count.tasks}
+                count={u._count.tickets}
               />
             ))}
           </>

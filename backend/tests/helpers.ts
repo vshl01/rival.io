@@ -7,13 +7,27 @@ export const app: Express = createApp();
 
 let counter = 0;
 
-/** Wipe all data between tests so suites are independent. */
+/**
+ * Wipe all data between tests so suites are independent.
+ *
+ * Deleting users would cascade to most of this, but the collaboration tables are
+ * listed explicitly: relying on cascade order means a future `onDelete` change
+ * silently leaves rows behind and tests start failing for reasons that look
+ * nothing like the cause.
+ */
 export async function resetDb() {
   // Order respects FK constraints (children first); CASCADE covers the rest.
   await prisma.$transaction([
     prisma.activity.deleteMany(),
     prisma.attachment.deleteMany(),
-    prisma.task.deleteMany(),
+    prisma.comment.deleteMany(),
+    prisma.ticket.deleteMany(),
+    prisma.notification.deleteMany(),
+    prisma.joinRequest.deleteMany(),
+    prisma.sprint.deleteMany(),
+    prisma.cycle.deleteMany(),
+    prisma.orgMembership.deleteMany(),
+    prisma.organization.deleteMany(),
     prisma.user.deleteMany(),
   ]);
 }

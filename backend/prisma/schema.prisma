@@ -15,6 +15,19 @@ enum Role {
   ADMIN
 }
 
+/// Role *within one organisation*. Independent of `Role`, which is
+/// platform-level. See docs/architecture.md §3.
+enum OrgRole {
+  ASSIGNER
+  WORKER
+}
+
+enum JoinStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
 enum TaskStatus {
   TODO
   IN_PROGRESS
@@ -37,15 +50,179 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  tasks      Task[]
-  activities Activity[]
-  comments   Comment[]
+  /// Everything they created — personal tasks and org tickets alike.
+  tickets         Ticket[]   @relation("TicketCreator")
+  /// Tickets assigned to them, which they may not have created.
+  ticketsAssigned Ticket[]   @relation("TicketAssignee")
+  activities      Activity[]
+  comments        Comment[]
+
+  // Collaboration
+  organizationsCreated Organization[]  @relation("OrganizationCreator")
+  memberships          OrgMembership[]
+  joinRequests         JoinRequest[]   @relation("JoinRequestApplicant")
+  joinRequestsDecided  JoinRequest[]   @relation("JoinRequestDecider")
+  sprintsLed           Sprint[]        @relation("SprintAssigner")
+  notifications        Notification[]
 
   @@index([email])
   @@map("users")
 }
 
-model Task {
+/// A team workspace. Everything collaborative hangs off an organisation:
+/// members, monthly cycles, sprints, and the tickets inside them.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  /// URL segment — /dashboard/acme
+  slug      String   @unique
+  /// Ticket key prefix — ACME-142
+  key       String   @unique
+  /// Last issued ticket number. Increment ATOMICALLY (see docs §5).
+  ticketSeq Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById String
+  createdBy   User   @relation("OrganizationCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  memberships  OrgMembership[]
+  joinRequests JoinRequest[]
+  cycles       Cycle[]
+  sprints      Sprint[]
+  tickets      Ticket[]
+
+  @@index([createdById])
+  @@map("organizations")
+}
+
+/// The authorisation backbone: presence of a row grants access to the org,
+/// and `role` decides what the member may do. Queried on every org request,
+/// which is why the composite unique doubles as its lookup index.
+model OrgMembership {
+  id       String   @id @default(cuid())
+  role     OrgRole  @default(WORKER)
+  joinedAt DateTime @default(now())
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  // Answers "is there another assigner left?" without scanning the roster.
+  @@index([orgId, role])
+  @@map("org_memberships")
+}
+
+/// A request to join an org, awaiting an assigner's decision.
+/// NOTE: only one PENDING request per (org, user) is allowed. That needs a
+/// partial unique index Prisma cannot express — see docs §8 "Known schema gap".
+model JoinRequest {
+  id        String     @id @default(cuid())
+  status    JoinStatus @default(PENDING)
+  message   String?
+  createdAt DateTime   @default(now())
+  decidedAt DateTime?
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("JoinRequestApplicant", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Nullable so history survives the deciding assigner being deleted.
+  decidedById String?
+  decidedBy   User?   @relation("JoinRequestDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([orgId, status])
+  @@index([userId, status])
+  @@map("join_requests")
+}
+
+/// One calendar month inside an organisation. Rows are upserted lazily by the
+/// read path for the rolling window (current month + next 2) — see docs §2.
+model Cycle {
+  id    String @id @default(cuid())
+  year  Int
+  /// 1..12
+  month Int
+  /// Last issued sprint number in this cycle. Increment ATOMICALLY.
+  sprintSeq Int @default(0)
+  createdAt DateTime @default(now())
+
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  sprints Sprint[]
+
+  @@unique([orgId, year, month])
+  @@map("cycles")
+}
+
+/// A time-boxed block of work inside a cycle. `number` is what appears in the
+/// URL (/dashboard/acme/2026-07/3) and restarts at 1 each cycle.
+model Sprint {
+  id        String   @id @default(cuid())
+  number    Int
+  name      String
+  startsAt  DateTime
+  deadline  DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cycleId String
+  cycle   Cycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+
+  /// Denormalised from `cycle.orgId`: removes a join from every permission
+  /// check and every sprint listing. Written only by sprintsService, which
+  /// keeps it equal to cycle.orgId.
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Whoever created the sprint — always an assigner, since only assigners can.
+  assignerId String
+  assigner   User   @relation("SprintAssigner", fields: [assignerId], references: [id], onDelete: Cascade)
+
+  tickets Ticket[]
+
+  @@unique([cycleId, number])
+  @@index([orgId, startsAt])
+  @@map("sprints")
+}
+
+/// In-app notification. Delivery (socket push) and the sidebar drawer land in
+/// build step 6; the write side exists now so join decisions can notify.
+model Notification {
+  id        String    @id @default(cuid())
+  /// e.g. "join_request.received", "join_request.accepted"
+  type      String
+  payload   Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Unread badge count, and the newest-first drawer listing.
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+/// A unit of work. Two kinds, one model — see docs/architecture.md §1:
+///
+///   sprintId == null  →  a PERSONAL TASK. Scoped by `createdById`, no key,
+///                        lives at /dashboard. This is the original behaviour.
+///   sprintId != null  →  a TICKET. Scoped by org membership, has a readable
+///                        `key` (ACME-142), lives inside a sprint.
+///
+/// The nullable columns are what let existing data keep working. The SERVICE
+/// refuses to create a ticket in an org without a sprint — permissiveness here is
+/// for migration, not for callers.
+model Ticket {
   id          String     @id @default(cuid())
   title       String
   description String?
@@ -56,19 +233,45 @@ model Task {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  ownerId String
-  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  /// "ACME-142". Null for personal tasks, which have no organisation to key them
+  /// against. Issued from `Organization.ticketSeq` — see docs §4b.
+  key String?
+
+  /// Renamed from `ownerId`: this no longer controls access for tickets, and a
+  /// field called "owner" invites someone to reintroduce `where: { ownerId }`
+  /// and silently break sharing.
+  createdById String
+  createdBy   User   @relation("TicketCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  /// Who is actually doing it. Any member may assign to any member.
+  assigneeId String?
+  assignee   User?   @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  sprintId String?
+  sprint   Sprint? @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+
+  /// Denormalised from the sprint so scoping and the key's uniqueness need no
+  /// join. Written only by the tickets service, alongside sprintId.
+  orgId String?
+  org   Organization? @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   attachments Attachment[]
   activities  Activity[]
   comments    Comment[]
 
-  // Composite indexes tuned for the list query (filter by owner + status, sort by columns).
-  @@index([ownerId, status])
-  @@index([ownerId, dueDate])
-  @@index([ownerId, priority])
-  @@index([ownerId, createdAt])
-  @@map("tasks")
+  /// A key is unique within its organisation. Both columns are nullable, and
+  /// Postgres treats NULLs as distinct, so personal tasks are unaffected.
+  @@unique([orgId, key])
+  // Personal-task list query (filter by creator + status, sort by columns).
+  @@index([createdById, status])
+  @@index([createdById, dueDate])
+  @@index([createdById, priority])
+  @@index([createdById, createdAt])
+  // Sprint board queries.
+  @@index([sprintId, status])
+  @@index([sprintId, priority])
+  @@index([assigneeId, status])
+  @@map("tickets")
 }
 
 model Attachment {
@@ -80,10 +283,10 @@ model Attachment {
   url          String
   createdAt    DateTime @default(now())
 
-  taskId String
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
-  @@index([taskId])
+  @@index([ticketId])
   @@map("attachments")
 }
 
@@ -94,13 +297,13 @@ model Comment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  taskId String
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   authorId String?
   author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
-  @@index([taskId, createdAt])
+  @@index([ticketId, createdAt])
   @@map("comments")
 }
 
@@ -111,12 +314,12 @@ model Activity {
   metadata  Json? // before/after diff, field names, etc.
   createdAt DateTime @default(now())
 
-  taskId String
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   actorId String?
   actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
-  @@index([taskId, createdAt])
+  @@index([ticketId, createdAt])
   @@map("activities")
 }

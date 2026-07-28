@@ -19,7 +19,7 @@
     "prisma:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
-    "db:test:setup": "dotenv -e .env.test -- prisma db push --skip-generate --accept-data-loss",
+    "db:test:setup": "sh -c 'if [ -f .env.test.local ]; then dotenv -e .env.test.local -e .env.test -- prisma db push --skip-generate --accept-data-loss; else dotenv -e .env.test -- prisma db push --skip-generate --accept-data-loss; fi'",
     "pretest": "npm run db:test:setup",
     "test": "vitest run",
     "test:watch": "vitest",

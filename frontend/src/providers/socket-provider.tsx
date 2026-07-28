@@ -4,6 +4,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { API_URL } from '@/lib/api';
+import { notificationKeys } from '@/hooks/use-notifications';
+import { orgKeys } from '@/hooks/use-orgs';
 import { taskKeys } from '@/hooks/use-tasks';
 import { useAuth } from '@/store/auth';
 
@@ -60,6 +62,23 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     };
     socket.on('comment:created', onComment);
     socket.on('comment:deleted', onComment);
+
+    /**
+     * A notification was written for this user.
+     *
+     * The event carries no payload on purpose — we refetch instead, so one
+     * handler covers every notification kind. Besides the bell, this refreshes
+     * the org's own "Join requests" section: that list is what an assigner is
+     * actually looking at when someone asks to join, and polling it would either
+     * lag or hammer the API.
+     */
+    socket.on('notification:created', () => {
+      queryClient.invalidateQueries({ queryKey: notificationKeys.all });
+      queryClient.invalidateQueries({ queryKey: [...orgKeys.all, 'join-requests'] });
+      // Being accepted, promoted or removed all change these.
+      queryClient.invalidateQueries({ queryKey: orgKeys.mine() });
+      queryClient.invalidateQueries({ queryKey: orgKeys.myJoinRequests() });
+    });
 
     return () => {
       socket.disconnect();

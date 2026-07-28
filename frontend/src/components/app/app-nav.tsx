@@ -1,10 +1,13 @@
 'use client';
 
-import { Command, Search } from 'lucide-react';
+import { Bell, Command, Search } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useState } from 'react';
+import { NotificationsDrawer } from '@/components/notifications/notifications-drawer';
 import { Logo } from '@/components/ui/logo';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { useUnreadCount } from '@/hooks/use-notifications';
 import { useRealtime } from '@/providers/socket-provider';
 import { useAuth } from '@/store/auth';
 import { useUi } from '@/store/ui';
@@ -16,9 +19,13 @@ export function AppNav() {
   const role = useAuth((s) => s.user?.role);
   const setCommandOpen = useUi((s) => s.setCommandOpen);
   const { connected } = useRealtime();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  // Socket push keeps this current; the hook only polls if the socket is down.
+  const { data: unread = 0 } = useUnreadCount(connected);
 
   const links = [
     { href: '/dashboard', label: 'Tasks' },
+    { href: '/dashboard/organizations', label: 'Organisations' },
     ...(role === 'ADMIN' ? [{ href: '/admin', label: 'Admin' }] : []),
   ];
 
@@ -29,7 +36,14 @@ export function AppNav() {
           <Logo href="/dashboard" />
           <nav className="hidden items-center gap-1 sm:flex">
             {links.map((l) => {
-              const active = pathname === l.href;
+              // Org workspaces live at /dashboard/<slug>, so anything below
+              // /dashboard belongs to the Organisations section — while
+              // /dashboard itself stays the personal Tasks view.
+              const active =
+                l.href === '/dashboard'
+                  ? pathname === '/dashboard'
+                  : pathname === l.href || pathname.startsWith(`${l.href}/`) ||
+                    (l.href === '/dashboard/organizations' && pathname.startsWith('/dashboard/'));
               return (
                 <Link
                   key={l.href}
@@ -68,10 +82,26 @@ export function AppNav() {
             </kbd>
           </button>
 
+          {/* Notifications */}
+          <button
+            onClick={() => setNotificationsOpen(true)}
+            aria-label={unread > 0 ? `Notifications (${unread} unread)` : 'Notifications'}
+            className="relative flex h-10 w-10 items-center justify-center rounded-xl text-ink-soft transition-colors hover:bg-elevated hover:text-ink"
+          >
+            <Bell className="h-[18px] w-[18px]" />
+            {unread > 0 && (
+              <span className="absolute right-1.5 top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold leading-none text-accent-ink">
+                {unread > 9 ? '9+' : unread}
+              </span>
+            )}
+          </button>
+
           <ThemeToggle />
           <UserMenu />
         </div>
       </div>
+
+      <NotificationsDrawer open={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
     </header>
   );
 }
