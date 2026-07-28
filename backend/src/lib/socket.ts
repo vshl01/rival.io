@@ -17,7 +17,13 @@ export type TaskEvent =
   | 'task:deleted'
   | 'activity:created'
   | 'comment:created'
-  | 'comment:deleted';
+  | 'comment:deleted'
+  /**
+   * A notification row was written for this user. Carries no payload — the
+   * client refetches, so one event type covers every notification kind and the
+   * socket never has to stay in sync with their shapes.
+   */
+  | 'notification:created';
 
 export function initSocket(httpServer: HttpServer): SocketServer {
   io = new SocketServer(httpServer, { cors: corsOptions });
