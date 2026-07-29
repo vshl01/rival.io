@@ -4,8 +4,10 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 /**
- * Seed two demo accounts and a spread of tasks so the UI looks alive on first
- * run. Idempotent: upserts users and only seeds tasks when none exist yet.
+ * Seed two demo accounts and a spread of PERSONAL TASKS so the UI looks alive on
+ * first run. Personal tasks are tickets with no sprint and no key — see
+ * docs/architecture.md §1. Idempotent: upserts users, and only seeds tasks when
+ * none exist yet.
  *
  *   admin@rival.app / Password123   (ADMIN)
  *   demo@rival.app  / Password123   (USER)
@@ -25,7 +27,7 @@ async function main() {
     create: { email: 'demo@rival.app', name: 'Devon Demo', role: 'USER', passwordHash },
   });
 
-  const existing = await prisma.task.count({ where: { ownerId: demo.id } });
+  const existing = await prisma.ticket.count({ where: { createdById: demo.id } });
   if (existing > 0) {
     // eslint-disable-next-line no-console
     console.log('Tasks already seeded — skipping.');
@@ -50,7 +52,7 @@ async function main() {
     { title: 'Reply to the partnership email', priority: Priority.MEDIUM, status: TaskStatus.TODO, due: -1, desc: 'Overdue — handle first thing.' },
   ];
 
-  await prisma.task.createMany({
+  await prisma.ticket.createMany({
     data: seed.map((t) => ({
       title: t.title,
       description: t.desc,
@@ -58,15 +60,15 @@ async function main() {
       status: t.status,
       dueDate: new Date(base + t.due * day),
       completedAt: t.status === TaskStatus.DONE ? new Date(base - day) : null,
-      ownerId: demo.id,
+      createdById: demo.id,
     })),
   });
 
   // A couple of admin-owned tasks so the admin login isn't empty.
-  await prisma.task.createMany({
+  await prisma.ticket.createMany({
     data: [
-      { title: 'Review user feedback queue', priority: Priority.HIGH, status: TaskStatus.TODO, dueDate: new Date(base + day), ownerId: admin.id },
-      { title: 'Approve Q3 roadmap', priority: Priority.URGENT, status: TaskStatus.IN_PROGRESS, dueDate: new Date(base + 2 * day), ownerId: admin.id },
+      { title: 'Review user feedback queue', priority: Priority.HIGH, status: TaskStatus.TODO, dueDate: new Date(base + day), createdById: admin.id },
+      { title: 'Approve Q3 roadmap', priority: Priority.URGENT, status: TaskStatus.IN_PROGRESS, dueDate: new Date(base + 2 * day), createdById: admin.id },
     ],
   });
 
