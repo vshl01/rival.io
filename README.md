@@ -82,7 +82,38 @@ The database starts empty. To load the demo data, run the seed once the stack is
 docker compose exec api npx prisma db seed
 ```
 
-### Option B — Run locally (two terminals)
+### Option B — Run locally from the root (one terminal)
+
+The root `package.json` is a local-dev launcher: it has no dependencies of its own
+and just forwards each command into `backend/` or `frontend/`.
+
+```bash
+git clone <repo-url> rival && cd rival
+npm install                  # installs BOTH backend and frontend (via postinstall)
+cp backend/.env.example backend/.env    # then fill in DATABASE_URL + JWT secrets
+
+npm run db:up                # Postgres via Docker (skip if you run your own)
+npm run migrate              # create tables
+npm run seed                 # optional: demo users + tasks
+
+npm run dev                  # API :4000 + web :3000 together — Ctrl+C stops both
+```
+
+| root command | runs |
+| --- | --- |
+| `npm run dev` | backend **and** frontend together |
+| `npm run backend:dev` / `npm run frontend:dev` | just one of them |
+| `npm run migrate` / `seed` / `studio` | Prisma commands in `backend/` |
+| `npm run db:up` / `db:down` | the Docker Postgres service |
+| `npm run test` / `typecheck` | backend tests / both typechecks |
+
+Each script is `npm --prefix <dir> run <script>`, so it executes with the working
+directory inside that package and every relative path (`.env`, `prisma/schema.prisma`)
+resolves as if you had `cd`-ed in yourself. Deploys are untouched: `backend/` and
+`frontend/` keep their own lockfiles, so the Dockerfiles, both CI workflows, Render
+and Vercel all keep building exactly as before.
+
+### Option C — Run locally (two terminals)
 
 **1. Start Postgres** (via Docker, or use your own and update `DATABASE_URL`):
 
