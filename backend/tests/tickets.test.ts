@@ -86,17 +86,17 @@ describe('creating tickets in a sprint', () => {
     expect(keys).toEqual([1, 2, 3, 4, 5].map((n) => `${org.key}-${n}`).sort());
   });
 
-  it('lets any member assign to any member', async () => {
+  it('accepts several assignees at creation', async () => {
     const { worker, assigner, board } = await makeSprintWorkspace();
 
     // A worker assigning to the assigner — allowed, per the permission matrix.
     const res = await request(app)
       .post(board)
       .set(auth(worker.token))
-      .send({ title: 'Please look at this', assigneeId: assigner.user.id });
+      .send({ title: 'Please look at this', assigneeIds: [assigner.user.id] });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.assignee.id).toBe(assigner.user.id);
+    expect(res.body.data.assignees.map((a: { id: string }) => a.id)).toEqual([assigner.user.id]);
   });
 
   it('refuses an assignee who is not in the organisation', async () => {
@@ -106,7 +106,7 @@ describe('creating tickets in a sprint', () => {
     const res = await request(app)
       .post(board)
       .set(auth(assigner.token))
-      .send({ title: 'Nope', assigneeId: outsider.user.id });
+      .send({ title: 'Nope', assigneeIds: [outsider.user.id] });
 
     expect(res.status).toBe(400);
   });
@@ -213,6 +213,62 @@ describe('reading and updating a ticket', () => {
     expect(update.actor.id).toBe(worker.user.id);
     expect(update.actor.name).toBe(worker.user.name ?? update.actor.name);
     expect(update.metadata.changes.title).toEqual({ from: 'Shared work', to: 'Renamed' });
+  });
+
+  it('replaces the whole assignee set and logs who changed', async () => {
+    const { worker, assigner, board } = await withTicket();
+
+    // Starts on the worker…
+    const created = (
+      await request(app)
+        .post(board)
+        .set(auth(assigner.token))
+        .send({ title: 'Hand-off', assigneeIds: [worker.user.id] })
+    ).body.data;
+
+    // …then the worker hands it to both of them.
+    const res = await request(app)
+      .patch(`/api/tasks/${created.id}`)
+      .set(auth(worker.token))
+      .send({ assigneeIds: [worker.user.id, assigner.user.id] });
+
+    expect(res.status).toBe(200);
+    expect(new Set(res.body.data.assignees.map((a: { id: string }) => a.id))).toEqual(
+      new Set([worker.user.id, assigner.user.id]),
+    );
+
+    // …then off the worker entirely. PATCH replaces, it does not merge.
+    const replaced = await request(app)
+      .patch(`/api/tasks/${created.id}`)
+      .set(auth(worker.token))
+      .send({ assigneeIds: [assigner.user.id] });
+
+    expect(replaced.body.data.assignees.map((a: { id: string }) => a.id)).toEqual([assigner.user.id]);
+
+    // A relation change is invisible to the scalar diff, so it is logged by hand.
+    const activity = await request(app)
+      .get(`/api/tasks/${created.id}/activity`)
+      .set(auth(worker.token));
+    const entries = activity.body.data.filter(
+      (a: { action: string }) => a.action === 'ticket.assignees_changed',
+    );
+
+    expect(entries).toHaveLength(2);
+    // Newest first: the removal of the worker.
+    expect(entries[0].metadata).toEqual({ added: [], removed: [worker.user.name] });
+    expect(entries[1].metadata).toEqual({ added: [assigner.user.name], removed: [] });
+  });
+
+  it('refuses an assignee outside the org on update', async () => {
+    const { worker, ticket } = await withTicket();
+    const outsider = await makeUser();
+
+    const res = await request(app)
+      .patch(`/api/tasks/${ticket.id}`)
+      .set(auth(worker.token))
+      .send({ assigneeIds: [outsider.user.id] });
+
+    expect(res.status).toBe(400);
   });
 
   it('refuses an update from a non-member', async () => {
