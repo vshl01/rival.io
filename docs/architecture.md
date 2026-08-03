@@ -310,12 +310,20 @@ itself — the path adds nothing it does not already know.
 - **Concurrent-edit protection** is still open. Two people on one ticket is now
   normal and last-write-wins silently clobbers; the fix is rejecting a write whose
   `updatedAt` is stale.
-- **Realtime for tickets is interim.** `emitTicket` notifies the creator and
-  assignee directly, because rooms are still keyed per user. Step 5 replaces this
-  with `sprint:<id>` rooms so every member sees board changes live. Until then a
-  third member must refetch.
+- **The org has no room of its own.** Membership changes (someone joins, a role
+  changes) reach the people involved through their `user:<id>` notification, and
+  the assigner's queue refetches on that event. An `org:<id>` room would let a
+  roster update reach members who are merely watching — worth adding when
+  something on screen depends on it, which nothing currently does.
 
 ### Conventions worth knowing
+
+**One test run at a time.** Every test truncates every table and the test database
+is shared, so two concurrent runs delete each other's fixtures. The symptoms are
+nothing like the cause — a `POST` returning 201 for a row that no longer exists,
+duplicate-slug errors nobody typed twice, `deadlock detected` from two `deleteMany`
+batches meeting. `tests/global-setup.ts` now refuses to start while another run
+holds the lock.
 
 **Reserved slugs.** `orgs.service` rejects slugs that would collide with a static
 route under `/dashboard` (`organizations`, `admin`, `settings`, …). Next resolves
