@@ -194,8 +194,10 @@ export const ticketsService = {
 
     return prisma.ticket.findMany({
       where: { sprintId: sprint.id },
-      // Board order: open work first, most urgent at the top of each group.
-      orderBy: [{ status: 'asc' }, { priority: 'desc' }, { createdAt: 'asc' }],
+      // Ordered by urgency, NOT status: Postgres appends newly added enum values
+      // to the end of its own ordering, so `status asc` would put SCOPING and
+      // BLOCKED after DONE. The board groups by status in the UI instead.
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
       include: ticketInclude,
     });
   },

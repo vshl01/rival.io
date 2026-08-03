@@ -28,10 +28,21 @@ enum JoinStatus {
   REJECTED
 }
 
+/// Workflow states. Declared in board order, but note that Postgres appends
+/// values added later to the END of its enum, so this order does NOT define
+/// sort order — the board groups by status in the UI instead. See
+/// ticketsService.listBySprint, which orders by priority rather than status.
 enum TaskStatus {
+  /// Not yet defined well enough to start.
+  SCOPING
   TODO
   IN_PROGRESS
+  /// Stalled on something outside the assignee's control.
+  BLOCKED
   DONE
+  /// Retired without being done. Gives a worker a way to withdraw a ticket
+  /// without delete rights, which only assigners have.
+  REMOVED
 }
 
 enum Priority {

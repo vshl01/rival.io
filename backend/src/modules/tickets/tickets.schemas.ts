@@ -1,6 +1,13 @@
 import { z } from 'zod';
 
-export const TASK_STATUSES = ['TODO', 'IN_PROGRESS', 'DONE'] as const;
+export const TASK_STATUSES = [
+  'SCOPING',
+  'TODO',
+  'IN_PROGRESS',
+  'BLOCKED',
+  'DONE',
+  'REMOVED',
+] as const;
 export const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const;
 export const SORT_FIELDS = ['dueDate', 'priority', 'createdAt', 'updatedAt', 'title'] as const;
 
