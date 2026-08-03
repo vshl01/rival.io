@@ -64,7 +64,7 @@ model User {
   /// Everything they created — personal tasks and org tickets alike.
   tickets         Ticket[]   @relation("TicketCreator")
   /// Tickets assigned to them, which they may not have created.
-  ticketsAssigned Ticket[]   @relation("TicketAssignee")
+  ticketsAssigned Ticket[]   @relation("TicketAssignees")
   activities      Activity[]
   comments        Comment[]
 
@@ -254,9 +254,14 @@ model Ticket {
   createdById String
   createdBy   User   @relation("TicketCreator", fields: [createdById], references: [id], onDelete: Cascade)
 
-  /// Who is actually doing it. Any member may assign to any member.
-  assigneeId String?
-  assignee   User?   @relation("TicketAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  /// Who is doing it. Many-to-many: work is often shared, and a single
+  /// `assigneeId` forces a lie about who is responsible. Any member may add or
+  /// remove any member at any time.
+  ///
+  /// Implicit relation (join table `_TicketAssignees`), because an assignment
+  /// carries no data of its own — who changed it and when is already recorded in
+  /// the activity log.
+  assignees User[] @relation("TicketAssignees")
 
   sprintId String?
   sprint   Sprint? @relation(fields: [sprintId], references: [id], onDelete: Cascade)
@@ -281,7 +286,6 @@ model Ticket {
   // Sprint board queries.
   @@index([sprintId, status])
   @@index([sprintId, priority])
-  @@index([assigneeId, status])
   @@map("tickets")
 }
 

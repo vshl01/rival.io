@@ -23,10 +23,12 @@ export const createTicketSchema = z.object({
   priority: z.enum(PRIORITIES).default('MEDIUM'),
   dueDate: dueDate.optional(),
   /**
-   * Only meaningful for a sprint ticket — a personal task has nobody to assign
-   * it to. The service verifies the assignee belongs to the organisation.
+   * Only meaningful for a sprint ticket — a personal task has nobody to assign it
+   * to. The service verifies every id belongs to the organisation.
+   *
+   * Capped so one request cannot fan a ticket out to an entire company.
    */
-  assigneeId: z.string().min(1).optional().nullable(),
+  assigneeIds: z.array(z.string().min(1)).max(20).optional(),
 });
 
 // All fields optional on update, but at least one must be present.
@@ -37,8 +39,11 @@ export const updateTicketSchema = z
     status: z.enum(TASK_STATUSES),
     priority: z.enum(PRIORITIES),
     dueDate,
-    /** `null` unassigns. Any member may reassign to any other member. */
-    assigneeId: z.string().min(1).nullable(),
+    /**
+     * REPLACES the whole set — an empty array unassigns everyone. Any member may
+     * change this at any time.
+     */
+    assigneeIds: z.array(z.string().min(1)).max(20),
   })
   .partial()
   .refine((data) => Object.keys(data).length > 0, {
