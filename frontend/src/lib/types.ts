@@ -1,7 +1,13 @@
 // Shared domain types — mirror the backend API contract.
 
 export type Role = 'USER' | 'ADMIN';
-export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'DONE';
+export type TaskStatus =
+  | 'SCOPING'
+  | 'TODO'
+  | 'IN_PROGRESS'
+  | 'BLOCKED'
+  | 'DONE'
+  | 'REMOVED';
 export type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 export type SortField = 'dueDate' | 'priority' | 'createdAt' | 'updatedAt' | 'title';
 export type SortOrder = 'asc' | 'desc';
