@@ -4,7 +4,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { MessageSquare, SendHorizonal, Shield, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Spinner } from '@/components/ui/feedback';
-import { useAddComment, useRemoveComment, useTaskComments } from '@/hooks/use-tasks';
+import {
+  isPendingComment,
+  useAddComment,
+  useRemoveComment,
+  useTaskComments,
+} from '@/hooks/use-tasks';
 import { formatRelative } from '@/lib/format';
 import type { Comment } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -20,16 +25,19 @@ export function CommentThread({ taskId }: { taskId: string }) {
   const removeComment = useRemoveComment(taskId);
   const [body, setBody] = useState('');
 
-  const submit = async (e: FormEvent) => {
+  /**
+   * Clear the box and post in the background.
+   *
+   * The comment is already in the thread — the mutation writes it to the cache
+   * before the request leaves — so there is nothing to wait for. If the server
+   * refuses it, the comment disappears again and a toast says why.
+   */
+  const submit = (e: FormEvent) => {
     e.preventDefault();
     const text = body.trim();
     if (!text) return;
-    try {
-      await addComment.mutateAsync(text);
-      setBody('');
-    } catch {
-      /* toast handled in hook */
-    }
+    addComment.mutate(text);
+    setBody('');
   };
 
   return (
@@ -53,7 +61,9 @@ export function CommentThread({ taskId }: { taskId: string }) {
               <CommentItem
                 key={c.id}
                 comment={c}
-                canDelete={me?.role === 'ADMIN' || c.author?.id === me?.id}
+                // A comment still being saved has no server id to delete by.
+                canDelete={!isPendingComment(c.id) && (me?.role === 'ADMIN' || c.author?.id === me?.id)}
+                pending={isPendingComment(c.id)}
                 onDelete={() => removeComment.mutate(c.id)}
               />
             ))}
@@ -78,11 +88,11 @@ export function CommentThread({ taskId }: { taskId: string }) {
           />
           <button
             type="submit"
-            disabled={!body.trim() || addComment.isPending}
+            disabled={!body.trim()}
             aria-label="Send comment"
             className="flex h-9 items-center gap-1.5 rounded-xl bg-accent px-3 text-sm font-medium text-accent-ink transition-all hover:brightness-105 active:scale-95 disabled:opacity-40"
           >
-            {addComment.isPending ? <Spinner className="h-4 w-4" /> : <SendHorizonal className="h-4 w-4" />}
+            <SendHorizonal className="h-4 w-4" />
             <span className="hidden sm:inline">Send</span>
           </button>
         </div>
@@ -95,10 +105,13 @@ function CommentItem({
   comment,
   canDelete,
   onDelete,
+  pending,
 }: {
   comment: Comment;
   canDelete: boolean;
   onDelete: () => void;
+  /** Written locally, not yet acknowledged by the server. */
+  pending?: boolean;
 }) {
   const name = comment.author?.name ?? 'Removed user';
   const isAdmin = comment.author?.role === 'ADMIN';
@@ -108,7 +121,7 @@ function CommentItem({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, height: 0 }}
-      className="group flex gap-2.5"
+      className={cn('group flex gap-2.5', pending && 'opacity-60')}
     >
       <span
         className={cn(

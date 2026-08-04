@@ -6,7 +6,7 @@ import { forwardRef, useState } from 'react';
 import { PriorityBadge, StatusBadge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
-import { useDeleteTask, useUpdateTask } from '@/hooks/use-tasks';
+import { isPendingTask, useDeleteTask, useUpdateTask } from '@/hooks/use-tasks';
 import { formatDue } from '@/lib/format';
 import { popIn } from '@/lib/motion';
 import type { Task } from '@/lib/types';
@@ -21,6 +21,9 @@ export const TaskCard = forwardRef<HTMLDivElement, { task: Task }>(function Task
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const done = task.status === 'DONE';
+  // Optimistically created and still saving: there is no server row to open,
+  // edit or delete yet, so those controls wait for the real id.
+  const pending = isPendingTask(task.id);
   const due = formatDue(task.dueDate);
   const attachments = task._count?.attachments ?? 0;
   const activities = task._count?.activities ?? 0;
@@ -41,11 +44,13 @@ export const TaskCard = forwardRef<HTMLDivElement, { task: Task }>(function Task
       className={cn(
         'group relative flex gap-3 rounded-2xl border border-line bg-surface p-4 transition-colors hover:border-ink-faint/40 hover:shadow-soft sm:p-5',
         done && 'opacity-70',
+        pending && 'animate-pulse border-dashed',
       )}
     >
       {/* Complete toggle */}
       <button
         onClick={toggleComplete}
+        disabled={pending}
         aria-label={done ? 'Mark as not done' : 'Mark as done'}
         className={cn(
           'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition-all',
@@ -58,7 +63,11 @@ export const TaskCard = forwardRef<HTMLDivElement, { task: Task }>(function Task
       </button>
 
       {/* Body — clicking opens the detail drawer */}
-      <button onClick={() => openDetail(task.id)} className="min-w-0 flex-1 text-left">
+      <button
+        onClick={() => openDetail(task.id)}
+        disabled={pending}
+        className="min-w-0 flex-1 text-left"
+      >
         <p className={cn('truncate font-medium text-ink', done && 'text-ink-soft line-through')}>
           {task.title}
         </p>
@@ -103,7 +112,12 @@ export const TaskCard = forwardRef<HTMLDivElement, { task: Task }>(function Task
       </button>
 
       {/* Hover actions */}
-      <div className="absolute right-3 top-3 flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+      <div
+        className={cn(
+          'absolute right-3 top-3 flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100',
+          pending && 'hidden',
+        )}
+      >
         <button
           onClick={() => openTaskForm(task.id)}
           aria-label="Edit task"
