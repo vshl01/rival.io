@@ -10,12 +10,14 @@ import { Modal } from '@/components/ui/modal';
 import { Spinner } from '@/components/ui/feedback';
 import { useCreateTask, useTask, useUpdateTask } from '@/hooks/use-tasks';
 import { PRIORITY_ORDER, STATUS_ORDER, PRIORITY_META, STATUS_META } from '@/lib/task-meta';
+import type { TaskStatus } from '@/lib/types';
 import { useUi } from '@/store/ui';
 
 const schema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
   description: z.string().trim().max(5000).optional(),
-  status: z.enum(['TODO', 'IN_PROGRESS', 'DONE']),
+  // Kept in step with STATUS_ORDER so a new workflow state needs one edit.
+  status: z.enum(STATUS_ORDER as [TaskStatus, ...TaskStatus[]]),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']),
   dueDate: z.string().optional(),
 });
