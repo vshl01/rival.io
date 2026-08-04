@@ -48,8 +48,11 @@ export interface Task {
    * what distinguishes the two kinds (docs/architecture.md §1).
    */
   key?: string | null;
-  assignee?: Person | null;
+  /** Many-to-many: work is often shared. Empty means unassigned. */
+  assignees?: Person[];
   sprint?: { id: string; number: number; name: string } | null;
+  /** Present on a sprint ticket; lets the UI reach the org's member list. */
+  org?: { slug: string; name: string; key: string } | null;
 }
 
 export interface Comment {
