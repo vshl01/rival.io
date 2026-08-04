@@ -2,23 +2,24 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { taskKeys } from '@/hooks/use-tasks';
-import { api, ApiError, type CreateTaskPayload } from '@/lib/api';
+import { api, ApiError, type CreateTaskPayload, type UpdateTaskPayload } from '@/lib/api';
+import { taskKeys, ticketKeys } from '@/lib/query-keys';
 import type { Task } from '@/lib/types';
+import { useAuth } from '@/store/auth';
 
 /**
  * Sprint tickets.
  *
- * Separate from `use-tasks` because the two are governed differently: a personal
- * task is scoped to its creator, a ticket to org membership. They share the
- * single-ticket endpoints (`/api/tasks/:id`), so mutations invalidate both key
- * spaces.
+ * Separate from `use-tasks` because the two are governed differently — a personal
+ * task is scoped to its creator, a ticket to org membership — but they share the
+ * single-ticket endpoints (`/api/tasks/:id`), so every mutation invalidates both
+ * key spaces.
+ *
+ * All mutations are optimistic: the board updates on click and rolls back if the
+ * server rejects it. Waiting on a round-trip to Neon for a status change makes the
+ * board feel broken even when it is working.
  */
-export const ticketKeys = {
-  all: ['tickets'] as const,
-  board: (slug: string, cycle: string, sprint: number) =>
-    [...ticketKeys.all, 'board', slug, cycle, sprint] as const,
-};
+export { ticketKeys };
 
 const showError = (err: unknown, fallback: string) =>
   toast.error(err instanceof ApiError ? err.message : fallback);
