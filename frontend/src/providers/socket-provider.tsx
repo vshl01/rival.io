@@ -1,19 +1,43 @@
 'use client';
 
 import { useQueryClient } from '@tanstack/react-query';
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { API_URL } from '@/lib/api';
 import { notificationKeys } from '@/hooks/use-notifications';
 import { orgKeys } from '@/hooks/use-orgs';
-import { taskKeys } from '@/hooks/use-tasks';
+import { taskKeys, ticketKeys } from '@/lib/query-keys';
+import type { Task } from '@/lib/types';
 import { useAuth } from '@/store/auth';
 
 interface SocketCtx {
   connected: boolean;
+  /** Null until the connection is established, and again after a logout. */
+  socket: Socket | null;
 }
-const Ctx = createContext<SocketCtx>({ connected: false });
+const Ctx = createContext<SocketCtx>({ connected: false, socket: null });
 export const useRealtime = () => useContext(Ctx);
+
+/**
+ * Watch one sprint's board for as long as this component is mounted.
+ *
+ * Boards are shared, so the server keys their events by sprint rather than by
+ * person — but a socket only receives them after asking to, and the server checks
+ * org membership before letting it in. Re-runs on `connected` because a reconnect
+ * is a NEW socket session: rooms are not restored, and without this a board would
+ * quietly stop updating after a network blip.
+ */
+export function useWatchSprint(sprintId: string | null | undefined) {
+  const { socket, connected } = useRealtime();
+
+  useEffect(() => {
+    if (!socket || !connected || !sprintId) return;
+    socket.emit('sprint:watch', sprintId);
+    return () => {
+      socket.emit('sprint:unwatch', sprintId);
+    };
+  }, [socket, connected, sprintId]);
+}
 
 /**
  * Maintains a single authenticated Socket.IO connection while logged in and
@@ -24,7 +48,9 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const accessToken = useAuth((s) => s.accessToken);
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const queryClient = useQueryClient();
-  const socketRef = useRef<Socket | null>(null);
+  // State, not a ref: consumers subscribe to the instance, so they have to
+  // re-render when it is replaced.
+  const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -82,10 +108,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
 
     return () => {
       socket.disconnect();
-      socketRef.current = null;
+      setSocket(null);
       setConnected(false);
     };
   }, [isAuthenticated, accessToken, queryClient]);
 
-  return <Ctx.Provider value={{ connected }}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={{ connected, socket }}>{children}</Ctx.Provider>;
 }
