@@ -16,6 +16,7 @@ import {
 import { API_URL } from '@/lib/api';
 import { formatBytes, formatFullDate } from '@/lib/format';
 import type { Attachment } from '@/lib/types';
+import { AssigneeEditor } from '@/components/tickets/assignee-editor';
 import { ActivityTimeline } from './activity-timeline';
 import { AttachmentPreview } from './attachment-preview';
 import { CommentThread } from './comment-thread';
@@ -101,6 +102,17 @@ export function TaskDetailDrawer() {
                     <dd className="mt-0.5 text-ink">{formatFullDate(task.createdAt).split(' at')[0]}</dd>
                   </div>
                 </dl>
+
+                {/* Sprint tickets can be assigned; a personal task has nobody to assign to. */}
+                {task.org?.slug && (
+                  <div className="mt-5">
+                    <AssigneeEditor
+                      ticketId={task.id}
+                      orgSlug={task.org.slug}
+                      assignees={task.assignees ?? []}
+                    />
+                  </div>
+                )}
 
                 {task.description && (
                   <div className="mt-5">
