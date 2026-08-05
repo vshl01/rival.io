@@ -61,23 +61,43 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       transports: ['websocket'],
       reconnectionAttempts: 5,
     });
-    socketRef.current = socket;
+    setSocket(socket);
 
     const invalidate = () => {
       queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
       queryClient.invalidateQueries({ queryKey: taskKeys.stats() });
+      // The same event covers sprint tickets — someone else moving a card, or
+      // adding you as an assignee, has to reach the board and not only the list.
+      queryClient.invalidateQueries({ queryKey: ticketKeys.all });
     };
+
+    /**
+     * Apply a pushed change to every board that already shows that ticket.
+     *
+     * Invalidation alone would be correct but not immediate: the card would sit
+     * still for a round trip while the refetch runs. Writing the payload in first
+     * means a colleague's drag lands here at the same speed as your own, and the
+     * refetch that follows only confirms it.
+     */
+    const patchBoards = (update: (items: Task[]) => Task[]) =>
+      queryClient.setQueriesData<Task[]>({ queryKey: ticketKeys.all }, (old) =>
+        old ? update(old) : old,
+      );
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
     socket.on('task:created', invalidate);
-    socket.on('task:deleted', invalidate);
-    socket.on('task:updated', (task: { id: string }) => {
+    socket.on('task:deleted', (payload: { id?: string }) => {
+      if (payload?.id) patchBoards((items) => items.filter((t) => t.id !== payload.id));
       invalidate();
+    });
+    socket.on('task:updated', (task: Task) => {
       if (task?.id) {
-        queryClient.invalidateQueries({ queryKey: taskKeys.detail(task.id) });
+        patchBoards((items) => items.map((t) => (t.id === task.id ? task : t)));
+        queryClient.setQueryData(taskKeys.detail(task.id), task);
         queryClient.invalidateQueries({ queryKey: taskKeys.activity(task.id) });
       }
+      invalidate();
     });
     const onComment = (payload: { taskId: string }) => {
       if (payload?.taskId) {
