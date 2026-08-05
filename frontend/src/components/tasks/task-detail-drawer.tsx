@@ -63,7 +63,8 @@ export function TaskDetailDrawer() {
             className="relative z-10 flex h-full w-full max-w-md flex-col border-l border-line bg-surface shadow-lift"
           >
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
-              <p className="text-eyebrow">Task details</p>
+              {/* One drawer serves both kinds; the key is what distinguishes them. */}
+              <p className="text-eyebrow">{task?.key ? 'Ticket' : 'Task'} details</p>
               <button onClick={close} aria-label="Close" className="rounded-lg p-1.5 text-ink-faint hover:bg-elevated hover:text-ink">
                 <X className="h-5 w-5" />
               </button>
@@ -75,9 +76,17 @@ export function TaskDetailDrawer() {
               </div>
             ) : (
               <div className="flex-1 overflow-y-auto px-5 py-5">
+                {task.key && (
+                  <p className="mb-1.5 font-mono text-xs tracking-tight text-ink-faint">
+                    {task.key}
+                    {task.sprint && (
+                      <span className="text-ink-faint/70"> · {task.sprint.name}</span>
+                    )}
+                  </p>
+                )}
                 <h2 className="font-display text-3xl leading-tight text-ink">{task.title}</h2>
 
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-wrap items-center gap-2">
                   <StatusBadge status={task.status} />
                   <PriorityBadge priority={task.priority} />
                 </div>
