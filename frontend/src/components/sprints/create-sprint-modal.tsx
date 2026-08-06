@@ -12,6 +12,21 @@ function toDateInput(date: Date): string {
 }
 
 /**
+ * First and last day of a cycle month, as date-input values.
+ *
+ * A sprint must START inside the month it is filed under — day 0 of the next
+ * month is the last day of this one, which also handles February and leap years
+ * without a table of month lengths.
+ */
+function monthBounds(cycle: string): { first: string; last: string } {
+  const [year, month] = cycle.split('-').map(Number);
+  return {
+    first: toDateInput(new Date(Date.UTC(year, month - 1, 1))),
+    last: toDateInput(new Date(Date.UTC(year, month, 0))),
+  };
+}
+
+/**
  * Sensible defaults for a new sprint in `cycle` (a `YYYY-MM` key):
  * the 1st of that month to a fortnight later — the shape most sprints take.
  */
@@ -54,15 +69,32 @@ export function CreateSprintModal({
     setDeadline(defaults.deadline);
   }, [open, cycle]);
 
+  const bounds = monthBounds(cycle);
   const trimmed = name.trim();
-  // Mirrors the server's only date invariant: it must end after it starts.
-  const datesInvalid = Boolean(startsAt && deadline && deadline <= startsAt);
-  const canSubmit = trimmed.length >= 2 && !!startsAt && !!deadline && !datesInvalid;
 
-  const submit = async (event: React.FormEvent) => {
+  /*
+    Both server rules, checked here so they are visible before submitting:
+    the sprint must start inside its own month, and must end after it starts.
+    ISO date strings compare correctly as plain strings, so no parsing is needed.
+  */
+  const startsOutsideMonth = Boolean(startsAt) && (startsAt < bounds.first || startsAt > bounds.last);
+  const endsBeforeItStarts = Boolean(startsAt && deadline) && deadline <= startsAt;
+  const problem = startsOutsideMonth
+    ? `A sprint filed under ${cycleLabel} has to start in ${cycleLabel} — open the right month to plan later work.`
+    : endsBeforeItStarts
+      ? 'The deadline must be after the start date'
+      : undefined;
+
+  const canSubmit = trimmed.length >= 2 && !!startsAt && !!deadline && !problem;
+
+  /**
+   * Close at once — the sprint is already in its month block, waiting only for
+   * the number the server assigns. A refusal removes it again with a toast.
+   */
+  const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!canSubmit) return;
-    await createSprint.mutateAsync({
+    createSprint.mutate({
       cycle,
       name: trimmed,
       // Dates arrive as YYYY-MM-DD; widen to ISO so the API gets a real instant.
@@ -96,39 +128,46 @@ export function CreateSprintModal({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <Label htmlFor="sprint-start">Starts</Label>
+            <Label htmlFor="sprint-start" hint={`in ${cycleLabel}`}>
+              Starts
+            </Label>
+            {/* The picker itself refuses other months, so the rule is felt rather
+                than read — the message below is only for a typed-in date. */}
             <Input
               id="sprint-start"
               type="date"
               value={startsAt}
+              min={bounds.first}
+              max={bounds.last}
               onChange={(e) => setStartsAt(e.target.value)}
             />
           </div>
           <div>
-            <Label htmlFor="sprint-deadline">Deadline</Label>
+            <Label htmlFor="sprint-deadline" hint="may run later">
+              Deadline
+            </Label>
             <Input
               id="sprint-deadline"
               type="date"
               value={deadline}
+              min={startsAt || undefined}
               onChange={(e) => setDeadline(e.target.value)}
             />
           </div>
         </div>
 
-        <FieldError>
-          {datesInvalid ? 'The deadline must be after the start date' : undefined}
-        </FieldError>
+        <FieldError>{problem}</FieldError>
 
-        {/* A sprint may run past its month — worth saying, since it looks wrong. */}
         <p className="text-xs text-ink-faint">
-          A sprint can end outside {cycleLabel}; the month only decides where it is listed.
+          It must start in {cycleLabel} — that is what files it under this month — but it may end
+          later.
         </p>
 
         <div className="flex justify-end gap-2 pt-1">
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" loading={createSprint.isPending} disabled={!canSubmit}>
+          <Button type="submit" disabled={!canSubmit}>
             Create sprint
           </Button>
         </div>
