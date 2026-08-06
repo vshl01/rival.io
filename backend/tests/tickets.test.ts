@@ -38,14 +38,14 @@ async function makeSprintWorkspace() {
     .set(auth(assigner.token));
 
   const cycle = currentCycleKey();
+  // Dates are derived from the cycle: a sprint must start in the month it is
+  // filed under, so a hardcoded July would fail from August onwards.
+  const [year, month] = cycle.split('-').map(Number);
+  const day = (n: number, hour = 9) => new Date(Date.UTC(year, month - 1, n, hour)).toISOString();
   await request(app)
     .post(`/api/orgs/${org.slug}/cycles/${cycle}/sprints`)
     .set(auth(assigner.token))
-    .send({
-      name: 'Sprint one',
-      startsAt: '2026-07-01T09:00:00.000Z',
-      deadline: '2026-07-14T17:00:00.000Z',
-    });
+    .send({ name: 'Sprint one', startsAt: day(2), deadline: day(15, 17) });
 
   const board = `/api/orgs/${org.slug}/cycles/${cycle}/sprints/1/tickets`;
   return { assigner, worker, org, cycle, board };
