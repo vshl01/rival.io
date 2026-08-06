@@ -62,11 +62,29 @@ default view is three months.
 per-user — otherwise a user at 00:30 IST on 1 August and the server in UTC
 disagree about which cycle to upsert.
 
-### Sprint dates are not clamped to their cycle
+### A sprint starts in its own month; it may end outside it
 
-A sprint filed under the July cycle may have an August deadline. The cycle is an
-organisational bucket, not a date constraint. The only invariant enforced is
-`deadline > startsAt`.
+Two rules, deliberately asymmetric:
+
+| | enforced? | why |
+| --- | --- | --- |
+| `deadline > startsAt` | yes | a sprint that ends before it starts is a typo |
+| `startsAt` inside the cycle month | **yes** | the cycle is where the sprint lives |
+| `deadline` inside the cycle month | no | 28 July → 8 August is an ordinary sprint |
+
+Filing a July sprint that starts on 12 August is not a filing decision, it is a
+mistake — usually made by opening the wrong month's *+ Sprint* button. It also
+breaks the board: July would list work that has not begun while August looks
+empty. So the start is clamped and the deadline is free.
+
+The check lives in `sprintsService` rather than the Zod schema, because the cycle
+key is a path parameter the schema cannot see. It resolves "which month is this
+date in?" through `yearMonthOf` — the cycles module's single fixed-zone helper —
+so it can never disagree with the code that decides which month is current.
+
+Re-scheduling is checked the same way: there is no endpoint to re-file a sprint
+under a different month, so a `PATCH` that moved its start out of that month would
+leave it stranded.
 
 ---
 
