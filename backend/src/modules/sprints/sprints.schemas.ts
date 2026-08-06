@@ -14,9 +14,14 @@ export const sprintParamSchema = z.object({
 export const sprintCollectionParamSchema = z.object({ slug, cycle });
 
 /**
- * A sprint's dates are NOT clamped to its cycle's month — an assigner may file a
- * July sprint with an August deadline (docs/architecture.md §2). The only
- * invariant is that it ends after it starts.
+ * Two date rules, and they live in different places:
+ *
+ *  · ends after it starts — here, since both values are in the request.
+ *  · STARTS inside the month it is filed under — in the service, because the
+ *    cycle key is a path parameter the schema cannot see. See
+ *    `assertStartsInCycle` and docs/architecture.md §2.
+ *
+ * The deadline may fall outside the month; only the start is clamped.
  */
 const dateRange = {
   startsAt: z.coerce.date(),

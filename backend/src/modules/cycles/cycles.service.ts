@@ -32,17 +32,28 @@ interface YearMonth {
   month: number;
 }
 
-/** The current month in `CYCLE_TIME_ZONE`. */
-function currentYearMonth(): YearMonth {
+/**
+ * The calendar month an instant falls in, resolved in `CYCLE_TIME_ZONE`.
+ *
+ * Exported because sprint creation has to answer the same question — "which month
+ * is this date in?" — and answering it in a second place with a second zone is how
+ * a sprint ends up filed under a month it does not start in.
+ */
+export function yearMonthOf(at: Date): YearMonth {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: CYCLE_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
-  }).formatToParts(new Date());
+  }).formatToParts(at);
 
   const year = Number(parts.find((p) => p.type === 'year')?.value);
   const month = Number(parts.find((p) => p.type === 'month')?.value);
   return { year, month };
+}
+
+/** The current month in `CYCLE_TIME_ZONE`. */
+function currentYearMonth(): YearMonth {
+  return yearMonthOf(new Date());
 }
 
 /** `count` consecutive months starting at `start`, inclusive. */
