@@ -8,6 +8,8 @@ import {
   type CreateSprintPayload,
   type UpdateSprintPayload,
 } from '@/lib/api';
+import type { Cycle, Sprint } from '@/lib/types';
+import { useAuth } from '@/store/auth';
 
 /* ── Query keys ─────────────────────────────────────────────── */
 export const sprintKeys = {
@@ -48,18 +50,60 @@ export function useSprint(slug: string | null, cycle: string | null, num: number
 }
 
 /* ── Mutations ──────────────────────────────────────────────── */
+
+/**
+ * A sprint that is in its month block before the request finishes.
+ *
+ * `number` is 0 — the real one is issued per cycle by the server, and a guess
+ * would render a link to a sprint that does not exist. The card checks for it and
+ * stays unclickable until the row is real.
+ */
+export const PENDING_SPRINT_NUMBER = 0;
+
 export function useCreateSprint(slug: string) {
   const qc = useQueryClient();
+  const me = useAuth((s) => s.user);
+  const cyclesKey = sprintKeys.cycles(slug);
+
   return useMutation({
     mutationFn: ({ cycle, ...payload }: CreateSprintPayload & { cycle: string }) =>
       api.orgs.sprints.create(slug, cycle, payload),
+
+    onMutate: async ({ cycle, name, startsAt, deadline }) => {
+      await qc.cancelQueries({ queryKey: cyclesKey });
+      const previous = qc.getQueryData<Cycle[]>(cyclesKey);
+
+      const pending: Sprint = {
+        id: `temp-${startsAt}-${name}`,
+        number: PENDING_SPRINT_NUMBER,
+        name,
+        startsAt,
+        deadline,
+        createdAt: new Date().toISOString(),
+        // Only an assigner can reach this, so the creator leads it.
+        assigner: me ? { id: me.id, name: me.name, email: me.email } : { id: '', name: 'you', email: '' },
+      };
+
+      qc.setQueryData<Cycle[]>(cyclesKey, (cycles) =>
+        cycles?.map((c) => (c.cycle === cycle ? { ...c, sprints: [...c.sprints, pending] } : c)),
+      );
+
+      return { previous };
+    },
+
     onSuccess: (sprint) => {
-      // The window carries each cycle's sprints, so it must refetch too.
-      qc.invalidateQueries({ queryKey: sprintKeys.cycles(slug) });
       qc.invalidateQueries({ queryKey: sprintKeys.list(slug, sprint.cycle) });
       toast.success(`Sprint ${sprint.number} — ${sprint.name} created`);
     },
-    onError: (err) => showError(err, 'Could not create the sprint'),
+
+    onError: (err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(cyclesKey, ctx.previous);
+      showError(err, 'Could not create the sprint');
+    },
+
+    // The window carries each cycle's sprints, so it must refetch to pick up the
+    // number the server issued.
+    onSettled: () => qc.invalidateQueries({ queryKey: cyclesKey }),
   });
 }
 
@@ -79,13 +123,30 @@ export function useUpdateSprint(slug: string, cycle: string, num: number) {
 
 export function useDeleteSprint(slug: string, cycle: string) {
   const qc = useQueryClient();
+  const cyclesKey = sprintKeys.cycles(slug);
+
   return useMutation({
     mutationFn: (num: number) => api.orgs.sprints.remove(slug, cycle, num),
+    onMutate: async (num) => {
+      await qc.cancelQueries({ queryKey: cyclesKey });
+      const previous = qc.getQueryData<Cycle[]>(cyclesKey);
+      // Gone from its month block at once — the caller usually navigates back to
+      // the org straight after, and the sprint must not still be listed there.
+      qc.setQueryData<Cycle[]>(cyclesKey, (cycles) =>
+        cycles?.map((c) =>
+          c.cycle === cycle ? { ...c, sprints: c.sprints.filter((s) => s.number !== num) } : c,
+        ),
+      );
+      return { previous };
+    },
     onSuccess: (_data, num) => {
       qc.removeQueries({ queryKey: sprintKeys.detail(slug, cycle, num) });
-      qc.invalidateQueries({ queryKey: sprintKeys.cycles(slug) });
       toast.success('Sprint deleted');
     },
-    onError: (err) => showError(err, 'Could not delete the sprint'),
+    onError: (err, _num, ctx) => {
+      if (ctx?.previous) qc.setQueryData(cyclesKey, ctx.previous);
+      showError(err, 'Could not delete the sprint — it is back');
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: cyclesKey }),
   });
 }
