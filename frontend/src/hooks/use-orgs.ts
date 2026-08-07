@@ -3,7 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { api, ApiError, type CreateOrgPayload } from '@/lib/api';
-import type { JoinStatus, OrgRole } from '@/lib/types';
+import type { JoinRequest, JoinStatus, OrgMember, OrgRole } from '@/lib/types';
 import { notificationKeys } from './use-notifications';
 
 /* ── Query keys ─────────────────────────────────────────────── */
@@ -107,49 +107,99 @@ export function useRequestToJoin() {
   });
 }
 
+/**
+ * Accept or reject, with the row gone from the queue on click.
+ *
+ * A pending request is a decision the assigner has just made in their head; the
+ * list has to agree at once or they click twice. The roster it adds to is left to
+ * the refetch — inventing a membership row locally would mean guessing the id and
+ * join date the server is about to assign.
+ */
 export function useDecideJoinRequest(slug: string) {
   const qc = useQueryClient();
+  const pendingKey = orgKeys.joinRequests(slug, 'PENDING');
+
   return useMutation({
     mutationFn: ({ requestId, accept }: { requestId: string; accept: boolean }) =>
       api.orgs.decideJoinRequest(slug, requestId, accept),
-    onSuccess: (_data, { accept }) => {
+    onMutate: async ({ requestId }) => {
+      await qc.cancelQueries({ queryKey: pendingKey });
+      const previous = qc.getQueryData<JoinRequest[]>(pendingKey);
+      qc.setQueryData<JoinRequest[]>(pendingKey, (rows) =>
+        rows?.filter((r) => r.id !== requestId),
+      );
+      return { previous };
+    },
+    onSuccess: (_data, { accept }) => toast.success(accept ? 'Request accepted' : 'Request rejected'),
+    onError: (err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(pendingKey, ctx.previous);
+      showError(err, 'Could not save that decision');
+    },
+    onSettled: () => {
       // Accepting changes the roster and the member count on the org header.
       qc.invalidateQueries({ queryKey: [...orgKeys.all, 'join-requests', slug] });
       qc.invalidateQueries({ queryKey: orgKeys.members(slug) });
       qc.invalidateQueries({ queryKey: orgKeys.detail(slug) });
       qc.invalidateQueries({ queryKey: notificationKeys.all });
-      toast.success(accept ? 'Request accepted' : 'Request rejected');
     },
-    onError: (err) => showError(err, 'Could not save that decision'),
   });
 }
 
+/** Promote or demote, with the badge changing on click. */
 export function useSetMemberRole(slug: string) {
   const qc = useQueryClient();
+  const membersKey = orgKeys.members(slug);
+
   return useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: OrgRole }) =>
       api.orgs.setMemberRole(slug, userId, role),
-    onSuccess: (_data, { role }) => {
-      qc.invalidateQueries({ queryKey: orgKeys.members(slug) });
-      qc.invalidateQueries({ queryKey: orgKeys.detail(slug) });
-      toast.success(role === 'ASSIGNER' ? 'Promoted to assigner' : 'Changed to worker');
+    onMutate: async ({ userId, role }) => {
+      await qc.cancelQueries({ queryKey: membersKey });
+      const previous = qc.getQueryData<OrgMember[]>(membersKey);
+      qc.setQueryData<OrgMember[]>(membersKey, (members) =>
+        members?.map((m) => (m.user.id === userId ? { ...m, role } : m)),
+      );
+      return { previous };
     },
+    onSuccess: (_data, { role }) =>
+      toast.success(role === 'ASSIGNER' ? 'Promoted to assigner' : 'Changed to worker'),
     // The common failure is the last-assigner rule (409) — its message is the
-    // actual instruction, so it must reach the user verbatim.
-    onError: (err) => showError(err, 'Could not change that role'),
+    // actual instruction, so it must reach the user verbatim. The badge snaps
+    // back at the same time, so the refusal is unmistakable.
+    onError: (err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(membersKey, ctx.previous);
+      showError(err, 'Could not change that role');
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: membersKey });
+      qc.invalidateQueries({ queryKey: orgKeys.detail(slug) });
+    },
   });
 }
 
 export function useRemoveMember(slug: string) {
   const qc = useQueryClient();
+  const membersKey = orgKeys.members(slug);
+
   return useMutation({
     mutationFn: (userId: string) => api.orgs.removeMember(slug, userId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: orgKeys.members(slug) });
-      qc.invalidateQueries({ queryKey: orgKeys.detail(slug) });
-      toast.success('Member removed');
+    onMutate: async (userId) => {
+      await qc.cancelQueries({ queryKey: membersKey });
+      const previous = qc.getQueryData<OrgMember[]>(membersKey);
+      qc.setQueryData<OrgMember[]>(membersKey, (members) =>
+        members?.filter((m) => m.user.id !== userId),
+      );
+      return { previous };
     },
-    onError: (err) => showError(err, 'Could not remove that member'),
+    onSuccess: () => toast.success('Member removed'),
+    onError: (err, _userId, ctx) => {
+      if (ctx?.previous) qc.setQueryData(membersKey, ctx.previous);
+      showError(err, 'Could not remove that member — they are back');
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: membersKey });
+      qc.invalidateQueries({ queryKey: orgKeys.detail(slug) });
+    },
   });
 }
 
