@@ -78,12 +78,13 @@ export function AssigneeEditor({ ticketId, orgSlug, assignees }: AssigneeEditorP
         {assignees.length === 0 ? (
           <span className="text-sm text-ink-faint">Not assigned yet</span>
         ) : (
-          assignees.map((person) => (
+          assignees.map((person, i) => (
             <span
               key={person.id}
               className="group/tile inline-flex items-center gap-1.5 rounded-full border border-line bg-elevated py-0.5 pl-0.5 pr-1 text-xs text-ink-soft transition-colors hover:border-danger/40"
             >
-              <Avatar person={person} size="sm" className="ring-elevated" />
+              {/* Same order as the card's stack, so the colours agree. */}
+              <Avatar person={person} size="sm" index={i} className="ring-elevated" />
               {person.name}
               {/*
                 Removing one person is the common case, and opening the menu to
