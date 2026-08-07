@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react';
 import Link from 'next/link';
+import { Avatar } from '@/components/tickets/assignee-stack';
 import { PENDING_SPRINT_NUMBER } from '@/hooks/use-sprints';
 import { formatDue } from '@/lib/format';
 import type { Sprint } from '@/lib/types';
@@ -85,11 +86,8 @@ export function SprintCard({ orgSlug, cycle, sprint }: SprintCardProps) {
         </span>
 
         {/* Initials rather than a full name: the lead matters, the column is narrow. */}
-        <span
-          className="hidden h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line bg-elevated text-[9px] font-medium text-ink-soft md:flex"
-          title={`led by ${sprint.assigner.name}`}
-        >
-          {sprint.assigner.name.slice(0, 2).toUpperCase()}
+        <span className="hidden md:block" title={`led by ${sprint.assigner.name}`}>
+          <Avatar person={sprint.assigner} size="sm" />
         </span>
 
         {due && (

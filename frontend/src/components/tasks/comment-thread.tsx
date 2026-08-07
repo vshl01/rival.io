@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { MessageSquare, SendHorizonal, Shield, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Spinner } from '@/components/ui/feedback';
+import { Avatar } from '@/components/tickets/assignee-stack';
 import {
   isPendingComment,
   useAddComment,
@@ -14,9 +15,6 @@ import { formatRelative } from '@/lib/format';
 import type { Comment } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/store/auth';
-
-const initials = (name: string) =>
-  name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
 
 export function CommentThread({ taskId }: { taskId: string }) {
   const me = useAuth((s) => s.user);
@@ -123,14 +121,14 @@ function CommentItem({
       exit={{ opacity: 0, height: 0 }}
       className={cn('group flex gap-2.5', pending && 'opacity-60')}
     >
-      <span
-        className={cn(
-          'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold',
-          isAdmin ? 'bg-accent text-accent-ink' : 'bg-elevated text-ink-soft',
-        )}
-      >
-        {comment.author ? initials(name) : '?'}
-      </span>
+      {/* The same avatar the boards use, so a face is recognisable app-wide. */}
+      {comment.author ? (
+        <Avatar person={comment.author} size="lg" className="mt-0.5" />
+      ) : (
+        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-elevated font-display text-[13px] text-ink-faint ring-2 ring-surface">
+          ?
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-ink">{name}</span>

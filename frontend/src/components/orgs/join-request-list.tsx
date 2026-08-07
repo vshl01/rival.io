@@ -1,6 +1,7 @@
 'use client';
 
 import { Check, Inbox, X } from 'lucide-react';
+import { Avatar } from '@/components/tickets/assignee-stack';
 import { Button } from '@/components/ui/button';
 import { EmptyState, Skeleton } from '@/components/ui/feedback';
 import { useDecideJoinRequest, useJoinRequests } from '@/hooks/use-orgs';
@@ -47,9 +48,7 @@ export function JoinRequestList({ slug }: { slug: string }) {
         return (
           <li key={request.id} className="rounded-xl border border-line bg-canvas px-3 py-3">
             <div className="flex items-start gap-2.5">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-elevated text-[10px] font-medium text-ink-soft">
-                {request.user.name.slice(0, 2).toUpperCase()}
-              </span>
+              <Avatar person={request.user} />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-ink">{request.user.name}</p>
                 <p className="truncate text-xs text-ink-faint">{request.user.email}</p>

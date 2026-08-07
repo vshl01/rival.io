@@ -2,6 +2,7 @@
 
 import { MoreHorizontal, ShieldCheck, UserMinus, Users, Wrench } from 'lucide-react';
 import { useState } from 'react';
+import { Avatar } from '@/components/tickets/assignee-stack';
 import { Skeleton } from '@/components/ui/feedback';
 import { useOrgMembers, useRemoveMember, useSetMemberRole } from '@/hooks/use-orgs';
 import { formatRelative } from '@/lib/format';
@@ -79,9 +80,7 @@ function MemberRow({ slug, member, canManage, isSelf, assignerCount }: MemberRow
   return (
     <li className="flex items-center justify-between gap-2 px-1 py-2.5">
       <div className="flex min-w-0 items-center gap-2.5">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-elevated text-[10px] font-medium text-ink-soft">
-          {member.user.name.slice(0, 2).toUpperCase()}
-        </span>
+        <Avatar person={member.user} />
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-ink">
             {member.user.name}

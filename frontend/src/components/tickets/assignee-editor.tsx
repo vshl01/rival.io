@@ -2,7 +2,7 @@
 
 import { Check, UserPlus, X } from 'lucide-react';
 import { useState } from 'react';
-import { AssigneeStack, initials } from '@/components/tickets/assignee-stack';
+import { Avatar } from '@/components/tickets/assignee-stack';
 import { Spinner } from '@/components/ui/feedback';
 import { useOrgMembers } from '@/hooks/use-orgs';
 import { useUpdateTask } from '@/hooks/use-tasks';
@@ -83,9 +83,7 @@ export function AssigneeEditor({ ticketId, orgSlug, assignees }: AssigneeEditorP
               key={person.id}
               className="group/tile inline-flex items-center gap-1.5 rounded-full border border-line bg-elevated py-0.5 pl-0.5 pr-1 text-xs text-ink-soft transition-colors hover:border-danger/40"
             >
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-canvas text-[8px] font-medium">
-                {initials(person.name)}
-              </span>
+              <Avatar person={person} size="sm" className="ring-elevated" />
               {person.name}
               {/*
                 Removing one person is the common case, and opening the menu to
@@ -130,9 +128,7 @@ export function AssigneeEditor({ ticketId, orgSlug, assignees }: AssigneeEditorP
                       isOn ? 'text-ink' : 'text-ink-soft hover:bg-elevated hover:text-ink',
                     )}
                   >
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line bg-elevated text-[9px] font-medium">
-                      {initials(member.user.name)}
-                    </span>
+                    <Avatar person={member.user} size="sm" className="ring-surface" />
                     <span className="min-w-0 flex-1 truncate">{member.user.name}</span>
                     {isOn && <Check className="h-3.5 w-3.5 shrink-0 text-accent" />}
                   </button>

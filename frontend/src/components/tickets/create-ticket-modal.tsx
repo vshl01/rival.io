@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input, Label, Select, Textarea } from '@/components/ui/field';
 import { Modal } from '@/components/ui/modal';
+import { Avatar } from '@/components/tickets/assignee-stack';
 import { useOrgMembers } from '@/hooks/use-orgs';
 import { useCreateTicket } from '@/hooks/use-tickets';
 import { PRIORITY_META, PRIORITY_ORDER } from '@/lib/task-meta';
@@ -182,9 +183,7 @@ export function CreateTicketModal({
                         : 'border-line bg-elevated text-ink-soft hover:text-ink',
                     )}
                   >
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-canvas text-[9px] font-medium">
-                      {m.user.name.slice(0, 2).toUpperCase()}
-                    </span>
+                    <Avatar person={m.user} size="sm" className="ring-transparent" />
                     {m.user.name}
                     {on && <Check className="h-3 w-3 text-accent" />}
                   </button>
