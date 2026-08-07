@@ -15,9 +15,20 @@ interface AssigneeStackProps {
  * Overlapping avatars. Shows who is on a ticket in the width of one avatar plus a
  * few pixels, which is the only way a card can stay dense once a ticket can have
  * several people on it.
+ *
+ * An unassigned ticket says so rather than rendering nothing. Blank space reads as
+ * "still loading", and unassigned work is precisely what someone scanning a board
+ * is looking for.
  */
 export function AssigneeStack({ assignees, max = 3, className }: AssigneeStackProps) {
-  if (assignees.length === 0) return null;
+  if (assignees.length === 0) {
+    return (
+      <span className={cn('text-[10px] leading-none text-ink-faint/80', className)}>
+        Not assigned yet
+      </span>
+    );
+  }
+
   const shown = assignees.slice(0, max);
   const hidden = assignees.length - shown.length;
 

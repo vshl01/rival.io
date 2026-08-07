@@ -97,38 +97,41 @@ export function TicketCard({ ticket, canDelete, onDelete, deleting, pending }: T
         {ticket.title}
       </p>
 
-      {/* Footer only renders when there is something to say. */}
-      {(ticket.assignees?.length || due || ticket._count?.comments || ticket._count?.attachments) && (
-        <div className="mt-1.5 flex items-center gap-2">
-          <AssigneeStack assignees={ticket.assignees ?? []} className="shrink-0" />
+      {/*
+        Always rendered: it carries who is on the ticket, and "nobody" is
+        information too. It also used to be behind `{(a?.length || due || …) && …}`,
+        which rendered a stray "0" whenever every one of those was 0 or null —
+        `&&` returns the falsy left-hand value, and React prints 0.
+      */}
+      <div className="mt-1.5 flex items-center gap-2">
+        <AssigneeStack assignees={ticket.assignees ?? []} className="shrink-0" />
 
-          {due && (
-            <span
-              className={cn(
-                'text-[10px] leading-none',
-                due.overdue ? 'font-medium text-danger' : due.soon ? 'text-ink' : 'text-ink-faint',
-              )}
-            >
-              {due.overdue ? 'overdue' : due.label}
+        {due && (
+          <span
+            className={cn(
+              'shrink-0 text-[10px] leading-none',
+              due.overdue ? 'font-medium text-danger' : due.soon ? 'text-ink' : 'text-ink-faint',
+            )}
+          >
+            {due.overdue ? 'overdue' : due.label}
+          </span>
+        )}
+
+        <span className="ml-auto flex items-center gap-1.5 text-[10px] leading-none text-ink-faint">
+          {!!ticket._count?.comments && (
+            <span className="inline-flex items-center gap-0.5">
+              <MessageSquare className="h-2.5 w-2.5" />
+              {ticket._count.comments}
             </span>
           )}
-
-          <span className="ml-auto flex items-center gap-1.5 text-[10px] leading-none text-ink-faint">
-            {!!ticket._count?.comments && (
-              <span className="inline-flex items-center gap-0.5">
-                <MessageSquare className="h-2.5 w-2.5" />
-                {ticket._count.comments}
-              </span>
-            )}
-            {!!ticket._count?.attachments && (
-              <span className="inline-flex items-center gap-0.5">
-                <Paperclip className="h-2.5 w-2.5" />
-                {ticket._count.attachments}
-              </span>
-            )}
-          </span>
-        </div>
-      )}
+          {!!ticket._count?.attachments && (
+            <span className="inline-flex items-center gap-0.5">
+              <Paperclip className="h-2.5 w-2.5" />
+              {ticket._count.attachments}
+            </span>
+          )}
+        </span>
+      </div>
     </div>
   );
 }

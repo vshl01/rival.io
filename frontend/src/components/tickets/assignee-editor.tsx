@@ -76,7 +76,7 @@ export function AssigneeEditor({ ticketId, orgSlug, assignees }: AssigneeEditorP
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {assignees.length === 0 ? (
-          <span className="text-sm text-ink-faint">Unassigned</span>
+          <span className="text-sm text-ink-faint">Not assigned yet</span>
         ) : (
           assignees.map((person) => (
             <span
